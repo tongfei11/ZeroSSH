@@ -34,6 +34,16 @@ TERMINAL_KEYS = {
     110: "\x1b[2~", DELETE: "\x1b[3~",
 }
 PRINTABLE = {57: (" ", " ")}
+# Raw evdev codes from APPLaunch's TCA8418 keymap. The keyboard emits the
+# symbol code directly (for example Sym+B emits 91 for a period).
+CARDPUTER_SYMBOLS = {
+    26: "!", 27: "@", 39: "#", 40: "$", 41: "%", 43: "^",
+    51: "&", 52: "*", 53: "(", 94: ")", 55: "~", 69: "`",
+    70: "_", 71: "-", 72: "+", 73: "=", 74: "[", 75: "]",
+    76: "{", 77: "}", 79: ";", 80: ":", 81: "'", 82: '"',
+    83: "<", 85: ">", 86: "\\", 89: "|", 90: ",", 91: ".",
+    92: "/", 93: "?",
+}
 HOST_FIELDS = (
     ("hostname", "地址", "域名或 IP", 253),
     ("user", "用户名", "SSH 登录用户名", 64),
@@ -92,7 +102,9 @@ def rgb565(image):
 
 
 def terminal_key(code, pressed, caps, application_cursor=False):
-    if code in ARROWS:
+    if code in CARDPUTER_SYMBOLS:
+        value = CARDPUTER_SYMBOLS[code]
+    elif code in ARROWS:
         value = ("\x1bO" if application_cursor else "\x1b[") + ARROWS[code]
     elif code == 15 and pressed & SHIFT:
         value = "\x1b[Z"
@@ -399,7 +411,7 @@ class App:
         current = self.host_form[key]
         if code in (BACKSPACE, DELETE):
             self.host_form[key] = current[:-1]
-        elif code in PRINTABLE and len(current) < limit and not self.pressed & (CTRL | ALT):
+        elif (code in PRINTABLE or code in CARDPUTER_SYMBOLS) and len(current) < limit and not self.pressed & (CTRL | ALT):
             character = terminal_key(code, self.pressed, self.caps)
             if key == "port" and not character.isdigit():
                 return

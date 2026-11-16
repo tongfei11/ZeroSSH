@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { WebSocket, WebSocketServer } from 'ws';
 
-const version = '0003';
+const version = '0004';
 const port = Number(process.env.PORT ?? 4173);
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = resolve(root, 'public');

@@ -149,7 +149,7 @@ async function refresh() {
   const next = await request('state');
   if (JSON.stringify(next) === JSON.stringify(state)) return;
   state = next;
-  element('version').textContent = next.version || '0003';
+  element('version').textContent = next.version || '0004';
   if (activeId && !state.sessions.some((session) => session.id === activeId)) {
     activate(state.sessions[0]?.id);
     return;

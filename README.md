@@ -1,6 +1,6 @@
 # Zero SSH
 
-构建 0003。CardputerZero 和 Web 管理端都可以添加 SSH 主机，并切换独立的交互式会话。私钥从 Web 管理端导入。
+构建 0004。CardputerZero 和 Web 管理端都可以添加 SSH 主机，并切换独立的交互式会话。私钥从 Web 管理端导入。
 
 ## 运行
 
@@ -23,6 +23,6 @@ ssh -N -L 4173:127.0.0.1:4173 user@server
 
 ## 安装到 CardputerZero
 
-将源码目录复制到 Zero，用运行 APPLaunch 的用户执行 `bash native/install.sh`。安装完成后在 APPLaunch 里打开 **Zero SSH**。在主机列表选择「添加主机」，可直接填写主机地址、端口和用户名。设备上添加的主机使用密码登录，SSH 提示时在终端输入密码。
+将源码目录复制到 Zero，用运行 APPLaunch 的用户执行 `bash native/install.sh`。安装完成后在 APPLaunch 里打开 **Zero SSH**。在主机列表选择「添加主机」，可直接填写主机地址、端口和用户名。输入 IP 地址时用 `Sym+B` 输入 `.`。设备上添加的主机使用密码登录，SSH 提示时在终端输入密码。
 
 `F/X` 选主机，回车打开或切回会话，`Esc` 返回主机列表，退格键结束选中的会话。在电脑上通过上面的 SSH 转发方式访问 Zero 的 Web 管理。主机、私钥和所有会话都由 Zero 上的同一个服务管理。设备上的数据目录为 `~/.local/state/zero-ssh/`。服务由用户级 systemd socket 在首次访问时启动。
