@@ -1,8 +1,0 @@
-[Unit]
-Description=Zero SSH local web and terminal socket
-
-[Socket]
-ListenStream=0.0.0.0:4173
-
-[Install]
-WantedBy=sockets.target

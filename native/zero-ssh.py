@@ -757,14 +757,27 @@ class App:
 
 
 def run(args):
+    app_dir = Path("/usr/lib/zero-ssh")
+    packaged = Path(__file__).resolve().parent.parent == app_dir
+    systemctl = ["systemctl", "--user"]
+    units = ["zero-ssh.service"] if packaged else ["zero-ssh.socket", "zero-ssh.service"]
+    if packaged:
+        active = subprocess.run([*systemctl, "is-active", "--quiet", *units], timeout=15)
+        if active.returncode:
+            subprocess.run([
+                "systemd-run", "--user", "--unit=zero-ssh.service", "--collect",
+                "--property=Type=exec", "--property=TimeoutStopSec=3", "--property=UMask=0077",
+                f"--working-directory={app_dir}", "--setenv=ZERO_SSH_MODE=device",
+                f"--setenv=CARDPUTER_DATA_DIR={Path.home() / '.local/state/zero-ssh'}",
+                f"--setenv=PORT={args.port}", "/usr/bin/node", str(app_dir / "server.mjs"),
+            ], check=True, timeout=15)
+    else:
+        subprocess.run([*systemctl, "start", *units], check=True, timeout=15)
     try:
-        subprocess.run(["systemctl", "--user", "start", "zero-ssh.socket", "zero-ssh.service"],
-                       check=True, timeout=15)
         run_ui(args)
     finally:
         if not Settings(getattr(args, "settings_path", None)).keep_services:
-            subprocess.run(["systemctl", "--user", "stop", "zero-ssh.socket", "zero-ssh.service"],
-                           check=True, timeout=15)
+            subprocess.run([*systemctl, "stop", *units], check=True, timeout=15)
 
 
 def run_ui(args):
@@ -843,7 +856,7 @@ def main():
         return 0
     try:
         run(args)
-    except (OSError, ImportError) as error:
+    except (OSError, ImportError, subprocess.SubprocessError) as error:
         print(f"Zero SSH: {error}", file=sys.stderr)
         return 1
     return 0
