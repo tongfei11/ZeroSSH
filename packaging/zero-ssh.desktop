@@ -3,6 +3,6 @@ Type=Application
 Name=Zero SSH
 Comment=Open SSH hosts and active sessions
 Exec=/usr/bin/python3 /usr/lib/zero-ssh/native/zero-ssh.py
-Icon=/usr/lib/zero-ssh/zero-ssh.png
+Icon=share/images/zero-ssh.png
 Terminal=false
 Categories=Network;

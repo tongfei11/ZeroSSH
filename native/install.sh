@@ -28,7 +28,7 @@ install -m 0644 native/zero-ssh.service native/zero-ssh.socket "$units/"
 
 sudo install -d /usr/local/lib/zero-ssh
 sudo install -m 0644 native/zero-ssh.py /usr/local/lib/zero-ssh/
-sudo install -m 0644 packaging/zero-ssh.png /usr/local/lib/zero-ssh/zero-ssh.png
+sudo install -D -m 0644 packaging/zero-ssh.png /usr/share/APPLaunch/share/images/zero-ssh.png
 sudo install -m 0644 native/zero-ssh.desktop /usr/share/APPLaunch/applications/
 systemctl --user daemon-reload
 systemctl --user stop zero-ssh.service zero-ssh.socket
