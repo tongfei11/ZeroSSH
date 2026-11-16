@@ -549,3 +549,9 @@ dialog .form-row {
   width: auto;
   accent-color: var(--accent);
 }
+
+.key-guide {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

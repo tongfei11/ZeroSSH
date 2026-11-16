@@ -1,6 +1,6 @@
 # Zero SSH
 
-版本 v0.1.0，构建 0012。CardputerZero 和 Web 管理端都可以添加 SSH 主机，并切换独立的交互式会话。私钥从 Web 管理端导入。
+版本 v0.1.0，构建 0013。CardputerZero 和 Web 管理端都可以添加 SSH 主机，并切换独立的交互式会话。私钥从 Web 管理端导入。
 
 ## 运行
 
