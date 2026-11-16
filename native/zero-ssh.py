@@ -189,8 +189,18 @@ class Display:
         draw.text((14, y + 12), tr("+ 添加主机", "+ Add host"), font=self.ui, fill=ACCENT, anchor="lm")
         draw.text((9, 139), fitted(self.ui, status, 300), font=self.ui, fill=MUTED, anchor="lm")
         draw.rectangle((0, 149, 319, 169), fill=SURFACE)
-        draw.text((9, 159), tr("F/X 选择 Enter 打开 长按 Esc 3 秒退出", "F/X Select Enter Open Esc hold 3s Exit"), font=self.ui,
-                  fill=INK, anchor="lm")
+        hints = (
+            ("F / X", tr("选择", "Select")),
+            ("Enter", tr("打开", "Open")),
+            ("Esc 3s", tr("退出", "Exit")),
+        )
+        for column, (key, action) in enumerate(hints):
+            left = column * 107
+            if column:
+                draw.line((left, 152, left, 166), fill=MUTED)
+            draw.text((left + 7, 159), key, font=self.ui, fill=ACCENT, anchor="lm")
+            draw.text((min(left + 100, 313), 159), action, font=self.ui,
+                      fill=INK, anchor="rm")
         return image
 
     def host_form_image(self, fields, focus, status, access=None):
