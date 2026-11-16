@@ -8,7 +8,7 @@ if [ "${1:-}" = --node-modules ]; then MODULES=$2; shift 2; fi
 [ "$(node -p process.versions.modules)" = 115 ] || { echo 'Node 20 (ABI 115) is required.' >&2; exit 1; }
 MODULES=$(CDPATH= cd -- "$MODULES" && pwd)
 node -e 'require(process.argv[1]);' "$MODULES/node-pty"
-VERSION=0.1.0+build0016
+VERSION=0.1.0+build0017
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT HUP INT TERM
 APP=$STAGE/usr/lib/zero-ssh
@@ -41,7 +41,11 @@ node -e 'require(process.argv[1]); require(process.argv[2]);' "$APP/node_modules
 cp "$ROOT/native/zero-ssh.py" "$APP/native/"
 cp "$ROOT/packaging/zero-ssh.png" "$LAUNCHER/share/images/"
 cp "$ROOT/packaging/zero-ssh.desktop" "$LAUNCHER/applications/"
-cp "$ROOT/packaging/copyright" "$STAGE/usr/share/doc/zero-ssh/"
+{
+    cat "$ROOT/packaging/copyright"
+    printf '\n'
+    cat "$ROOT/LICENSE"
+} > "$STAGE/usr/share/doc/zero-ssh/copyright"
 for script in postinst prerm postrm; do cp "$ROOT/packaging/$script" "$STAGE/DEBIAN/"; chmod 755 "$STAGE/DEBIAN/$script"; done
 SIZE=$(du -sk "$STAGE/usr" | awk '{print $1}')
 cat > "$STAGE/DEBIAN/control" <<CONTROL
