@@ -521,3 +521,43 @@ dialog .form-row {
 .credentials input[type=checkbox] {
   width:auto
 }
+
+#ssh-auth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+#ssh-auth[hidden] {
+  display: none;
+}
+
+#ssh-auth input {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 8px;
+  color: var(--ink);
+  background: var(--page);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.credential-options {
+  display: flex;
+  gap: 16px;
+}
+
+.credentials .credential-options label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+
+.credential-options input[type=radio] {
+  width: auto;
+  accent-color: var(--accent);
+}

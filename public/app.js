@@ -3,6 +3,8 @@ const hostList = element('host-list');
 const terminalNode = element('terminal');
 const dialog = element('host-dialog');
 const form = element('host-form');
+const authForm = element('ssh-auth');
+const secretInput = element('ssh-secret');
 let state = {hosts: [], sessions: []};
 let activeId;
 let socket;
@@ -11,6 +13,55 @@ let fitter;
 let input;
 let editing;
 let starting = false;
+let terminalTail = '';
+let authKind;
+let queuedPassword;
+
+function clearAuthPrompt() {
+  terminalTail = '';
+  authKind = undefined;
+  authForm.hidden = true;
+  secretInput.value = '';
+}
+
+function detectAuthPrompt(data) {
+  terminalTail = (terminalTail + data).split(/[\r\n]/).at(-1).slice(-500);
+  const isPassphrase = /^Enter passphrase for key .+:\s*$/i.test(terminalTail);
+  const isPassword = /^(?:.+['’]s )?password:\s*$/i.test(terminalTail);
+  if (!isPassphrase && !isPassword) return;
+  authKind = isPassphrase ? 'passphrase' : 'password';
+  if (isPassword && queuedPassword) {
+    sendSecret(queuedPassword.value);
+    return;
+  }
+  element('ssh-secret-label').textContent = isPassphrase ? 'SSH 私钥口令' : 'SSH 登录密码';
+  if (authForm.hidden) {
+    authForm.hidden = false;
+    secretInput.focus();
+  }
+}
+
+function sendSecret(value) {
+  if (socket?.readyState !== WebSocket.OPEN) return;
+  queuedPassword = undefined;
+  socket.send(value + '\r');
+  clearAuthPrompt();
+  terminal.focus();
+}
+
+authForm.onsubmit = (event) => {
+  event.preventDefault();
+  sendSecret(secretInput.value);
+};
+
+function queuePassword(value) {
+  queuedPassword = value ? { value } : undefined;
+  if (!queuedPassword) return;
+  const entry = queuedPassword;
+  setTimeout(() => {
+    if (queuedPassword === entry) queuedPassword = undefined;
+  }, 30_000);
+}
 
 function showNotice(message = '') {
   element('notice').textContent = message;
@@ -98,13 +149,17 @@ async function refresh() {
   const next = await request('state');
   if (JSON.stringify(next) === JSON.stringify(state)) return;
   state = next;
-  element('version').textContent = next.version || '0001';
+  element('version').textContent = next.version || '0002';
   if (activeId && !state.sessions.some((session) => session.id === activeId)) {
     activate(state.sessions[0]?.id);
     return;
   }
   renderHosts();
   renderTabs();
+  if (next.sessions.find((session) => session.id === activeId)?.exited) {
+    clearAuthPrompt();
+    renderConnection('会话已结束');
+  }
 }
 
 function renderConnection(label, live = false) {
@@ -121,8 +176,10 @@ function fitTerminal() {
   }
 }
 
-function activate(id) {
+function activate(id, password) {
   if (activeId === id && socket?.readyState === WebSocket.OPEN) {
+    if (password && authKind === 'password') sendSecret(password);
+    else if (password) queuePassword(password);
     terminal.focus();
     return;
   }
@@ -130,6 +187,8 @@ function activate(id) {
   input?.dispose();
   terminal?.dispose();
   socket = terminal = fitter = input = undefined;
+  clearAuthPrompt();
+  queuePassword(password);
   terminalNode.replaceChildren();
   activeId = id;
   element('empty').hidden = Boolean(id);
@@ -155,27 +214,46 @@ function activate(id) {
   renderConnection('连接中');
   connection.onopen = () => {
     if (socket !== connection) return;
-    renderConnection('终端已接入', true);
+    const exited = state.sessions.find((item) => item.id === id)?.exited;
+    renderConnection(exited ? '会话已结束' : '终端已接入', !exited);
     fitTerminal();
   };
-  connection.onmessage = ({data}) => { if (socket === connection) terminal.write(data); };
-  connection.onclose = () => { if (socket === connection) renderConnection('终端已断开'); };
-  input = terminal.onData((data) => { if (connection.readyState === WebSocket.OPEN) connection.send(data); });
+  const session = state.sessions.find((item) => item.id === id);
+  const usesSsh = state.hosts.find((host) => host.id === session?.hostId)?.kind === 'ssh';
+  connection.onmessage = ({data}) => {
+    if (socket !== connection) return;
+    terminal.write(data);
+    if (usesSsh) detectAuthPrompt(data);
+  };
+  connection.onclose = () => {
+    if (socket !== connection) return;
+    queuedPassword = undefined;
+    clearAuthPrompt();
+    renderConnection('终端已断开');
+  };
+  input = terminal.onData((data) => {
+    if (connection.readyState !== WebSocket.OPEN) return;
+    if (/[\r\n\x03]/.test(data)) {
+      queuedPassword = undefined;
+      clearAuthPrompt();
+    }
+    connection.send(data);
+  });
   terminal.focus();
 }
 
-async function connect(hostId) {
+async function connect(hostId, password) {
   if (starting || !hostId) return;
   const existing = state.sessions.find((session) => session.hostId === hostId);
-  if (existing) {
-    activate(existing.id);
+  if (existing && !existing.exited) {
+    activate(existing.id, password);
     return;
   }
   starting = true;
   try {
     const session = await request('sessions', 'POST', {hostId});
     await refresh();
-    activate(session.id);
+    activate(session.id, password);
     showNotice();
   } catch (error) { showNotice(error.message); }
   finally { starting = false; }
@@ -187,33 +265,52 @@ function openForm(host) {
   element('form-title').textContent = editing ? '编辑主机' : '添加主机';
   element('form-error').textContent = '';
   element('delete-host').hidden = !editing;
-  element('remove-key-row').hidden = !host?.hasKey;
+  form.elements.namedItem('authMode').value = host?.authMode || 'password';
   element('key-help').textContent = host?.hasKey
     ? '已导入私钥。选择另一个文件可替换，重新连接时生效。'
-    : '支持 OpenSSH 和 PEM。连接时可在终端输入私钥口令或登录密码。';
+    : '支持 OpenSSH 和 PEM 私钥文件。';
   if (host) {
     for (const field of ['name', 'hostname', 'port', 'user', 'group']) {
       form.elements.namedItem(field).value = host[field] ?? '';
     }
   }
+  renderAuthFields();
   dialog.showModal();
 }
+
+function renderAuthFields() {
+  const passwordMode = form.elements.namedItem('authMode').value === 'password';
+  const hasKey = state.hosts.find((host) => host.id === editing)?.hasKey;
+  element('password-fields').hidden = !passwordMode;
+  element('key-fields').hidden = passwordMode;
+  element('remove-key-row').hidden = !passwordMode || !hasKey;
+  element('save-host').textContent = passwordMode && element('host-password').value
+    ? '保存并连接' : '保存主机';
+}
+
+form.addEventListener('change', (event) => {
+  if (event.target.name === 'authMode') renderAuthFields();
+});
+element('host-password').oninput = renderAuthFields;
+dialog.addEventListener('close', () => { element('host-password').value = ''; });
 
 form.onsubmit = async (event) => {
   event.preventDefault();
   const body = Object.fromEntries(new FormData(form));
   body.port = Number(body.port);
-  const key = element('key-file').files[0];
+  const password = body.authMode === 'password' ? element('host-password').value : '';
+  const key = body.authMode === 'key' ? element('key-file').files[0] : undefined;
   try {
     if (key) {
       if (key.size > 12000) throw new Error('私钥文件须小于 12 KB。');
       body.privateKey = await key.text();
-    } else if (element('remove-key').checked) {
+    } else if (body.authMode === 'password' && element('remove-key').checked) {
       body.removeKey = true;
     }
-    await request(editing ? 'hosts/' + encodeURIComponent(editing) : 'hosts', editing ? 'PUT' : 'POST', body);
+    const host = await request(editing ? 'hosts/' + encodeURIComponent(editing) : 'hosts', editing ? 'PUT' : 'POST', body);
     dialog.close();
     await refresh();
+    if (password) await connect(host.id, password);
   } catch (error) { element('form-error').textContent = error.message; }
 };
 element('delete-host').onclick = async () => {

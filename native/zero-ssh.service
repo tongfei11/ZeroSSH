@@ -1,0 +1,12 @@
+[Unit]
+Description=Zero SSH session manager
+Requires=zero-ssh.socket
+After=zero-ssh.socket
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/zero-ssh
+Environment=ZERO_SSH_MODE=device
+Environment=CARDPUTER_DATA_DIR=%h/.local/state/zero-ssh
+ExecStart=/usr/bin/node %h/.local/share/zero-ssh/server.mjs
+UMask=0077

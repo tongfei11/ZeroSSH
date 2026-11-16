@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Zero SSH
+Comment=Open SSH hosts and active sessions
+Exec=/usr/bin/python3 /usr/local/lib/zero-ssh/zero-ssh.py
+Icon=/usr/local/lib/zero-ssh/zero-ssh.png
+Terminal=false
+Categories=Network;

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { WebSocket, WebSocketServer } from 'ws';
 
-const version = '0001';
+const version = '0002';
 const port = Number(process.env.PORT ?? 4173);
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = resolve(root, 'public');
@@ -43,7 +43,7 @@ try {
   hosts = JSON.parse(readFileSync(hostsFile, 'utf8'));
 } catch (error) {
   if (error.code !== 'ENOENT') throw error;
-  hosts = fixtures;
+  hosts = process.env.ZERO_SSH_MODE === 'device' ? [] : fixtures;
 }
 const sessions = new Map();
 
@@ -56,7 +56,7 @@ function saveHosts(next) {
 }
 
 function publicHost({ keyId, ...host }) {
-  return { ...host, hasKey: Boolean(keyId) };
+  return { ...host, authMode: host.authMode ?? (keyId ? 'key' : 'password'), hasKey: Boolean(keyId) };
 }
 
 function keyPath(id) {
@@ -64,6 +64,13 @@ function keyPath(id) {
 }
 
 function saveHostUpdate(current, fields, body) {
+  const authMode = body.authMode ?? (body.removeKey ? 'password'
+    : body.privateKey !== undefined ? 'key'
+    : current?.authMode ?? (current?.keyId ? 'key' : 'password'));
+  if (!['password', 'key'].includes(authMode)) throw new RequestError(400, '请选择 SSH 登录方式。');
+  if (authMode === 'key' && body.privateKey === undefined && (!current?.keyId || body.removeKey)) {
+    throw new RequestError(400, '请先导入 SSH 私钥。');
+  }
   let keyId = body.removeKey ? undefined : current?.keyId;
   if (body.privateKey !== undefined) {
     const key = typeof body.privateKey === 'string' && body.privateKey.replace(/\r\n/g, '\n').trim();
@@ -73,7 +80,7 @@ function saveHostUpdate(current, fields, body) {
     mkdirSync(keysDir, { recursive: true, mode: 0o700 });
     writeFileSync(keyPath(keyId), key + '\n', { mode: 0o600, flag: 'wx' });
   }
-  const host = { id: current?.id ?? randomUUID(), ...fields, kind: 'ssh', keyId };
+  const host = { id: current?.id ?? randomUUID(), ...fields, kind: 'ssh', authMode, keyId };
   try {
     saveHosts(current ? hosts.map((entry) => entry.id === host.id ? host : entry) : [...hosts, host]);
   } catch (error) {
@@ -175,11 +182,15 @@ function startSession(host) {
   const id = randomUUID();
   const isDemo = host.kind === 'demo';
   const command = isDemo ? '/bin/bash' : '/usr/bin/ssh';
+  const authMode = publicHost(host).authMode;
+  const authArgs = authMode === 'key'
+    ? ['-i', keyPath(host.keyId), '-o', 'IdentitiesOnly=yes', '-o', 'PreferredAuthentications=publickey']
+    : ['-o', 'PubkeyAuthentication=no', '-o', 'PreferredAuthentications=keyboard-interactive,password'];
   const args = isDemo
     ? ['--noprofile', '--norc', '-i']
     : [
       '-tt', '-o', 'ConnectTimeout=10',
-      ...(host.keyId ? ['-i', keyPath(host.keyId), '-o', 'IdentitiesOnly=yes'] : []),
+      ...authArgs,
       '-p', String(host.port), '-l', host.user, '--', host.hostname,
     ];
   const terminal = pty.spawn(command, args, {
@@ -200,6 +211,7 @@ function startSession(host) {
   terminal.onData((data) => writeTerminal(session, data));
   terminal.onExit(({ exitCode, signal }) => {
     session.exited = true;
+    record.exited = true;
     writeTerminal(session, `\r\n[会话已结束 · ${signal ? `信号 ${signal}` : `退出码 ${exitCode}`}]\r\n`);
   });
   return record;
@@ -249,7 +261,8 @@ async function handleApi(request, response, path) {
     const host = hosts.find((entry) => entry.id === hostId);
     if (!host) throw new RequestError(404, '主机不存在。');
     const existing = Array.from(sessions.values()).find((session) => session.record.hostId === hostId);
-    if (existing) return sendJson(response, 200, existing.record);
+    if (existing && !existing.exited) return sendJson(response, 200, existing.record);
+    if (existing) closeSession(existing.record.id);
     return sendJson(response, 201, startSession(host));
   }
   const sessionId = /^\/api\/sessions\/([\w-]+)$/.exec(path)?.[1];
@@ -299,8 +312,14 @@ server.on('upgrade', (request, socket, head) => {
     socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     return;
   }
-  const url = URL.parse(request.url, `http://${host}`);
-  const session = url?.pathname === '/terminal' && sessions.get(url.searchParams.get('id'));
+  let url;
+  try {
+    url = new URL(request.url, `http://${host}`);
+  } catch {
+    socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+    return;
+  }
+  const session = url.pathname === '/terminal' && sessions.get(url.searchParams.get('id'));
   if (!session) {
     socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n');
     return;
@@ -314,7 +333,7 @@ server.on('upgrade', (request, socket, head) => {
       if (session.exited) return;
       const text = message.toString();
       let control;
-      if (text.startsWith('{')) {
+      if (text.startsWith('{') && !/[\r\n]/.test(text)) {
         try { control = JSON.parse(text); } catch { /* forward ordinary input */ }
       }
       if (control?.type === 'resize') {
@@ -332,7 +351,8 @@ server.on('upgrade', (request, socket, head) => {
   });
 });
 
-server.listen(port, '127.0.0.1', () => {
+const inheritedSocket = process.env.LISTEN_PID === String(process.pid) && process.env.LISTEN_FDS === '1';
+server.listen(inheritedSocket ? { fd: 3 } : { port, host: '127.0.0.1' }, () => {
   console.log(`CardputerZero ${version} · http://127.0.0.1:${port}`);
 });
 function shutdown() {

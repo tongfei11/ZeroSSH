@@ -13,7 +13,7 @@
 <body>
   <header class="top">
     <a class="brand" href="/"><span class="mark">&gt;_</span><span>Zero<span class="accent">SSH</span><small>CARDPUTER ZERO</small></span></a>
-    <span class="build">DEMO <span id="version">0001</span></span>
+    <span class="build">DEMO <span id="version">0002</span></span>
   </header>
   <main>
     <div class="intro"><h1>主机与会话</h1><button id="add" class="primary">＋ 添加主机</button></div>
@@ -26,6 +26,11 @@
       <section class="console" aria-labelledby="console-heading">
         <div class="pane-heading"><h2 id="console-heading">终端会话</h2><span id="connection" class="connection">未连接</span></div>
         <div id="tabs" class="tabs" aria-label="会话"></div>
+        <form id="ssh-auth" hidden>
+          <label for="ssh-secret" id="ssh-secret-label">SSH 登录密码</label>
+          <input id="ssh-secret" type="password" autocomplete="off" required>
+          <button class="primary" type="submit">登录</button>
+        </form>
         <div class="terminal-wrap">
           <div id="terminal"></div>
           <div id="empty"><div class="mark large">&gt;_</div><h3>打开一个会话</h3><p>从左侧选择主机。切换会话时，后台继续运行。</p><button id="try-demo" class="primary">打开演示终端</button></div>
@@ -43,14 +48,25 @@
       <label>用户名<input name="user" maxlength="64" required placeholder="例如 admin"></label>
       <label>分组<input name="group" maxlength="40" placeholder="例如 家里"></label>
       <fieldset class="credentials">
-        <legend>SSH 私钥</legend>
-        <label for="key-file">导入私钥文件（可选）</label>
-        <input id="key-file" type="file" aria-describedby="key-help">
-        <p id="key-help">支持 OpenSSH 和 PEM。连接时可在终端输入私钥口令或登录密码。</p>
+        <legend>SSH 登录方式</legend>
+        <div class="credential-options">
+          <label><input type="radio" name="authMode" value="password" checked>密码</label>
+          <label><input type="radio" name="authMode" value="key">私钥</label>
+        </div>
+        <div id="password-fields">
+          <label for="host-password">SSH 登录密码</label>
+          <input id="host-password" type="password" autocomplete="new-password" aria-describedby="host-password-help">
+          <p id="host-password-help">填完即可保存并连接。密码只用于本次登录。</p>
+        </div>
+        <div id="key-fields" hidden>
+          <label for="key-file">导入私钥文件</label>
+          <input id="key-file" type="file" aria-describedby="key-help">
+          <p id="key-help">支持 OpenSSH 和 PEM 私钥文件。</p>
+        </div>
         <label class="remove-key" id="remove-key-row" hidden><input id="remove-key" type="checkbox">移除已导入的私钥</label>
       </fieldset>
       <p id="form-error" role="alert"></p>
-      <div class="form-actions"><button type="button" id="delete-host" class="danger">删除主机</button><div><button type="button" id="cancel">取消</button><button type="submit" class="primary">保存主机</button></div></div>
+      <div class="form-actions"><button type="button" id="delete-host" class="danger">删除主机</button><div><button type="button" id="cancel">取消</button><button type="submit" class="primary" id="save-host">保存主机</button></div></div>
     </form>
   </dialog>
 </body>
