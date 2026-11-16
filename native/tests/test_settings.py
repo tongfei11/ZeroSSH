@@ -14,6 +14,8 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'settings.json'
             settings = ui.Settings(path)
+            self.assertFalse(settings.keep_services)
+            settings.keep_services = True
             settings.language, settings.theme = 'zh', 'Nord'
             settings.save()
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
@@ -23,6 +25,7 @@ class SettingsTests(unittest.TestCase):
                     settings.save()
             loaded = ui.Settings(path)
             self.assertEqual((loaded.language, loaded.theme), ('zh', 'Nord'))
+            self.assertTrue(loaded.keep_services)
             self.assertEqual(list(Path(directory).iterdir()), [path])
 
     def test_corrupt_preferences_and_cli_precedence(self):

@@ -119,8 +119,11 @@ class Settings:
     def __init__(self, path=None):
         self.path = Path(path or Path.home() / ".config/zero-ssh/settings.json")
         self.language, self.theme = "system", "Default"
+        self.keep_services = False
         try:
             data = json.loads(self.path.read_text())
+            if isinstance(data.get("keep_services"), bool):
+                self.keep_services = data["keep_services"]
             if data.get("language") in ("system", "zh", "en"):
                 self.language = data["language"]
             if data.get("theme") in THEMES:
@@ -137,7 +140,7 @@ class Settings:
         fd, temporary = tempfile.mkstemp(dir=self.path.parent, prefix=".settings-")
         try:
             with os.fdopen(fd, "w") as output:
-                json.dump({"language": self.language, "theme": self.theme}, output)
+                json.dump({"language": self.language, "theme": self.theme, "keep_services": self.keep_services}, output)
                 output.flush()
                 os.fsync(output.fileno())
             os.replace(temporary, self.path)
@@ -297,18 +300,17 @@ class Display:
         draw.text((9, 12), tr("设置", "Settings"), font=self.title, fill=INK)
         draw.text((311, 22), "v0.1.0", font=self.ui, fill=MUTED, anchor="rm")
         labels = [(tr("语言", "Language"), {"system": "System", "zh": "中文", "en": "English"}[settings.language]),
-                  (tr("终端主题", "Terminal theme"), settings.theme)]
+                  (tr("终端主题", "Terminal theme"), settings.theme),
+                  (tr("退出保留服务", "Keep services on exit"), tr("开", "On") if settings.keep_services else tr("关", "Off"))]
         for row, (label, value) in enumerate(labels):
-            y = 40 + row * 28
+            y = 37 + row * 25
             draw.rounded_rectangle((7, y, 312, y + 24), radius=4, fill=SURFACE,
                                    outline=ACCENT if row == focus else SURFACE)
             draw.text((14, y + 12), label, font=self.ui, fill=INK, anchor="lm")
             draw.text((302, y + 12), value, font=self.ui, fill=ACCENT, anchor="rm")
         fg, bg = THEMES[self.theme]
-        draw.rectangle((7, 101, 312, 132), fill=bg)
-        draw.text((13, 104), "user@host $ ls", font=self.mono, fill=fg)
-        draw.text((13, 118), "folder/", font=self.mono, fill=self.color("blue", fg))
-        draw.text((80, 118), "ready", font=self.mono, fill=self.color("green", fg))
+        draw.rectangle((7, 114, 312, 133), fill=bg)
+        draw.text((13, 116), "user@host $ ls", font=self.mono, fill=fg)
         draw.text((9, 139), fitted(self.ui, status, 300), font=self.ui, fill=MUTED)
         draw.text((9, 156), tr("Tab 切换   Enter 调整", "Tab Select   Enter Change"), font=self.ui, fill=ACCENT)
         return image
@@ -509,10 +511,11 @@ class App:
             self.handle_action_key(code, value)
         elif self.settings_focus is not None:
             if code in (*LIST_MOVES, TAB):
-                self.settings_focus = 1 - self.settings_focus
+                self.settings_focus = (self.settings_focus + 1) % 3
             elif code in (105, 106, 44, 46, ENTER, KP_ENTER) and value == 1:
-                key = "language" if self.settings_focus == 0 else "theme"
-                choices = ["system", "zh", "en"] if key == "language" else list(THEMES)
+                key = ("language", "theme", "keep_services")[self.settings_focus]
+                choices = (["system", "zh", "en"] if key == "language" else
+                           list(THEMES) if key == "theme" else [False, True])
                 step = -1 if code in (105, 44) else 1
                 setattr(self.settings, key, choices[(choices.index(getattr(self.settings, key)) + step) % len(choices)])
                 self.settings.apply()
@@ -759,8 +762,9 @@ def run(args):
                        check=True, timeout=15)
         run_ui(args)
     finally:
-        subprocess.run(["systemctl", "--user", "stop", "zero-ssh.socket", "zero-ssh.service"],
-                       check=True, timeout=15)
+        if not Settings(getattr(args, "settings_path", None)).keep_services:
+            subprocess.run(["systemctl", "--user", "stop", "zero-ssh.socket", "zero-ssh.service"],
+                           check=True, timeout=15)
 
 
 def run_ui(args):
@@ -813,7 +817,8 @@ def run_ui(args):
         finally:
             if app.terminal:
                 app.terminal.close()
-            app.disconnect_all()
+            if not app.settings.keep_services:
+                app.disconnect_all()
 
 
 def main():

@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+[ "${1:-}" = configure ] || exit 0
+getent passwd | while IFS=: read -r name unused uid gid gecos home shell; do
+    unit=$home/.config/systemd/user/zero-ssh.service
+    socket=$home/.config/systemd/user/zero-ssh.socket
+    # Only migrate the exact known manually installed service and socket.
+    if [ -f "$unit" ] && grep -Fxq 'ExecStart=/usr/bin/node %h/.local/share/zero-ssh/server.mjs' "$unit" &&
+       [ -f "$socket" ] && grep -Fxq 'Description=Zero SSH local web and terminal socket' "$socket" && grep -Fxq 'ListenStream=0.0.0.0:4173' "$socket"; then
+        if [ -S "/run/user/$uid/bus" ]; then
+            runuser -u "$name" -- env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" systemctl --user stop zero-ssh.service zero-ssh.socket || true
+        fi
+        rm -f "$unit" "$socket"
+        link=$home/.config/systemd/user/sockets.target.wants/zero-ssh.socket
+        if [ -L "$link" ]; then
+            target=$(readlink "$link")
+            case "$target" in "$socket"|../zero-ssh.socket) rm -f "$link" ;; esac
+        fi
+    fi
+    if [ -S "/run/user/$uid/bus" ]; then
+        runuser -u "$name" -- env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" systemctl --user daemon-reload || true
+    fi
+done

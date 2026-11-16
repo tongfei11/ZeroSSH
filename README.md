@@ -1,6 +1,8 @@
 # Zero SSH
 
-版本 v0.1.0，构建 0013。CardputerZero 和 Web 管理端都可以添加 SSH 主机，并切换独立的交互式会话。私钥从 Web 管理端导入。
+![Zero SSH](assets/zero-ssh.png)
+
+版本 v0.1.0，构建 0014。CardputerZero 和 Web 管理端都可以添加 SSH 主机，并切换独立的交互式会话。私钥从 Web 管理端导入。
 
 ## 运行
 
@@ -28,3 +30,9 @@ CardputerZero 版允许同一局域网直接访问。打开设备上的 Zero SSH
 首页「设置」可选择跟随系统、中文或 English，并选择终端主题。偏好保存在运行应用用户的 `~/.config/zero-ssh/settings.json`，重开应用后继续使用。终端主题调整默认文字、背景及 ANSI 调色板。
 
 首页顶部为「Add host」，已有主机时默认选中第一个主机。Tab 可切换主机，S 打开设置。选中主机按 Enter 直接连接或切回，E 编辑，D 断开。删除入口位于编辑页第二页，删除前会确认。F/X 直接上下移动，Tab 顺序切换。仅在主机列表页按 Esc 时，在屏幕中央显示退出提示，长按三秒退出应用。其他页面短按 Esc 返回。
+
+## Debian 安装包
+
+在 ARM64 / Node.js 20 环境执行 sh packaging/build-deb.sh --node-modules /path/to/node_modules。输出到 dist/，包内包含 Node 运行依赖与图标，安装无需 npm 编译。使用 sudo apt install ./zero-ssh_0.1.0+build0014_arm64.deb 安装。
+
+设置中的「退出保留服务」默认关闭。开启后退出设备界面仍保留 SSH 会话与 Web 服务。

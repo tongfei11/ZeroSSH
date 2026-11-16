@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+# User credentials, preferences, session data, and manual installations survive removal.
+getent passwd | while IFS=: read -r name unused uid gid gecos home shell; do
+    if [ -S "/run/user/$uid/bus" ]; then
+        runuser -u "$name" -- env XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" systemctl --user daemon-reload || true
+    fi
+done

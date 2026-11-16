@@ -1,0 +1,5 @@
+Zero SSH original application code: Copyright tongfei11. All rights reserved.
+Upstream: https://github.com/tongfei11/ZeroSSH
+
+Third-party dependencies retain their own licenses. License and copyright
+files are included in /usr/lib/zero-ssh/node_modules with each dependency.
