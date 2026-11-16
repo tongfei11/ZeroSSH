@@ -63,6 +63,9 @@ async function request(path, method = 'GET', body) {
   }
   const response = await fetch('/api/' + path, options);
   const data = await response.json();
+  if (response.status === 401) {
+    if (!element('access-dialog').open) element('access-dialog').showModal();
+  }
   if (!response.ok) throw new Error(data.error || '操作失败');
   return data;
 }
@@ -134,7 +137,7 @@ async function refresh() {
   const next = await request('state');
   if (JSON.stringify(next) === JSON.stringify(state)) return;
   state = next;
-  element('version').textContent = next.version || '0005';
+  element('version').textContent = next.version || '0006';
   if (activeId && !state.sessions.some((session) => session.id === activeId)) {
     activate(state.sessions[0]?.id);
     return;
@@ -309,6 +312,17 @@ element('delete-host').onclick = async () => {
   } catch (error) { element('form-error').textContent = error.message; }
 };
 element('cancel').onclick = () => dialog.close();
+element('access-form').onsubmit = async (event) => {
+  event.preventDefault();
+  try {
+    await request('login', 'POST', { code: element('access-code').value });
+    element('access-code').value = '';
+    element('access-dialog').close();
+    await refresh();
+  } catch (error) {
+    element('access-error').textContent = error.message;
+  }
+};
 element('add').onclick = () => openForm();
 element('search').oninput = renderHosts;
 element('try-demo').onclick = () => connect(state.hosts.find((host) => host.kind === 'demo')?.id);

@@ -2,7 +2,7 @@
 Description=Zero SSH local web and terminal socket
 
 [Socket]
-ListenStream=127.0.0.1:4173
+ListenStream=0.0.0.0:4173
 
 [Install]
 WantedBy=sockets.target

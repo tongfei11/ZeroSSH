@@ -23,7 +23,7 @@ install -m 0644 package.json package-lock.json "$app/"
   npm_config_nodedir=/usr npm ci --omit=dev
 )
 install -m 0644 server.mjs "$app/"
-install -m 0644 public/index.html public/style.css public/app.js "$app/public/"
+install -m 0644 public/index.html public/style.css public/app.js public/i18n.js "$app/public/"
 install -m 0644 native/zero-ssh.service native/zero-ssh.socket "$units/"
 
 sudo install -d /usr/local/lib/zero-ssh
@@ -45,6 +45,7 @@ PY
 sudo install -m 0644 "$icon" /usr/local/lib/zero-ssh/zero-ssh.png
 sudo install -m 0644 native/zero-ssh.desktop /usr/share/APPLaunch/applications/
 systemctl --user daemon-reload
+systemctl --user stop zero-ssh.service zero-ssh.socket
 systemctl --user enable --now zero-ssh.socket
 if systemctl --user is-active --quiet zero-ssh.service; then
   systemctl --user restart zero-ssh.service

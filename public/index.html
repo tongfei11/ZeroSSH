@@ -9,13 +9,22 @@
   <script src="/vendor/xterm.js" defer></script>
   <script src="/vendor/xterm-fit.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/i18n.js" defer></script>
 </head>
 <body>
   <header class="top">
     <a class="brand" href="/"><span class="mark">&gt;_</span><span>Zero<span class="accent">SSH</span><small>CARDPUTER ZERO</small></span></a>
-    <span class="build">DEMO <span id="version">0005</span></span>
+    <span class="build">DEMO <span id="version">0006</span></span>
   </header>
   <main>
+    <dialog id="access-dialog">
+      <form id="access-form">
+        <h2>Zero SSH</h2>
+        <label>设备访问码 / Device access code<input id="access-code" inputmode="numeric" autocomplete="off" required></label>
+        <p id="access-error" role="alert"></p>
+        <button class="primary" type="submit">登录 / Sign in</button>
+      </form>
+    </dialog>
     <div class="intro"><h1>主机与会话</h1><button id="add" class="primary">＋ 添加主机</button></div>
     <div class="workspace">
       <aside class="hosts" aria-labelledby="hosts-heading">

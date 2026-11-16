@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomInt, randomBytes } from 'node:crypto';
+import { networkInterfaces } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { constants, accessSync, chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -9,7 +10,25 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { WebSocket, WebSocketServer } from 'ws';
 
-const version = '0005';
+const version = '0006';
+const accessCode = String(randomInt(10000000, 100000000));
+const webSessions = new Set();
+const loginAttempts = new Map();
+
+function lanAddresses() {
+  return Object.values(networkInterfaces()).flat().filter((item) => item && !item.internal
+    && item.family === 'IPv4' && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(item.address)).map((item) => item.address);
+}
+
+function localClient(request) {
+  return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress);
+}
+
+function authenticated(request) {
+  if (localClient(request)) return true;
+  const token = /(?:^|;\s*)zero_session=([a-f0-9]+)/.exec(request.headers.cookie ?? '')?.[1];
+  return webSessions.has(token);
+}
 const port = Number(process.env.PORT ?? 4173);
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = resolve(root, 'public');
@@ -270,6 +289,25 @@ function closeSession(id) {
 
 async function handleApi(request, response, path) {
   const { method } = request;
+  if (path === '/api/access' && method === 'GET') {
+    if (!localClient(request)) throw new RequestError(403, 'Access is available on the device screen.');
+    const address = lanAddresses()[0];
+    return sendJson(response, 200, { url: address ? `http://${address}:${port}/` : null, code: accessCode });
+  }
+  if (path === '/api/login' && method === 'POST') {
+    const ip = request.socket.remoteAddress;
+    const previous = loginAttempts.get(ip);
+    const attempts = previous && Date.now() - previous.time < 60000 ? previous : { time: Date.now(), count: 0 };
+    if (attempts.count >= 8) throw new RequestError(429, 'Try again in one minute.');
+    attempts.count++;
+    loginAttempts.set(ip, attempts);
+    const body = await readJson(request);
+    if (String(body.code) !== accessCode) throw new RequestError(401, 'Incorrect access code.');
+    const token = randomBytes(32).toString('hex');
+    webSessions.add(token);
+    response.setHeader('Set-Cookie', `zero_session=${token}; HttpOnly; SameSite=Strict; Path=/`);
+    return sendJson(response, 200, { ok: true });
+  }
   if (path === '/api/state' && method === 'GET') {
     return sendJson(response, 200, {
       hosts: hosts.map(publicHost), sessions: Array.from(sessions.values(), (session) => session.record), version,
@@ -316,7 +354,8 @@ async function handleApi(request, response, path) {
 }
 
 function allowedHost(host) {
-  return host === `127.0.0.1:${port}` || host === `localhost:${port}`
+  return lanAddresses().some((address) => host === `${address}:${port}`)
+    || host === `127.0.0.1:${port}` || host === `localhost:${port}`
     || (port === 80 && (host === '127.0.0.1' || host === 'localhost'));
 }
 
@@ -329,6 +368,9 @@ const server = createServer(async (request, response) => {
       throw new RequestError(403, '仅允许同源本地访问。');
     }
     const { pathname } = new URL(request.url, `http://${host}`);
+    if (pathname.startsWith('/api/') && !['/api/login', '/api/access'].includes(pathname) && !authenticated(request)) {
+      throw new RequestError(401, 'Enter the access code shown on your Zero.');
+    }
     if (pathname.startsWith('/api/')) return await handleApi(request, response, pathname);
     if (request.method !== 'GET' && request.method !== 'HEAD') throw new RequestError(405, '不支持此请求方法。');
     const path = pathname === '/' ? '/index.html' : decodeURIComponent(pathname);
@@ -350,7 +392,7 @@ const server = createServer(async (request, response) => {
 const sockets = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 server.on('upgrade', (request, socket, head) => {
   const host = request.headers.host;
-  if (!allowedHost(host) || request.headers.origin !== `http://${host}`) {
+  if (!allowedHost(host) || request.headers.origin !== `http://${host}` || !authenticated(request)) {
     socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     return;
   }
@@ -394,7 +436,7 @@ server.on('upgrade', (request, socket, head) => {
 });
 
 const inheritedSocket = process.env.LISTEN_PID === String(process.pid) && process.env.LISTEN_FDS === '1';
-server.listen(inheritedSocket ? { fd: 3 } : { port, host: '127.0.0.1' }, () => {
+server.listen(inheritedSocket ? { fd: 3 } : { port, host: process.env.ZERO_SSH_MODE === 'device' ? '0.0.0.0' : '127.0.0.1' }, () => {
   console.log(`CardputerZero ${version} · http://127.0.0.1:${port}`);
 });
 function shutdown() {

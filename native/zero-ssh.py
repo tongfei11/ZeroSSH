@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import queue
 import selectors
 import struct
@@ -78,6 +79,27 @@ FONT_MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 FONT_UI = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 
+def detect_language(environ=None, locale_path="/etc/default/locale"):
+    env = os.environ if environ is None else environ
+    locale = next((env[k] for k in ("LC_ALL", "LC_MESSAGES", "LANG") if env.get(k)), "")
+    if not locale:
+        try:
+            values = dict(line.split("=", 1) for line in Path(locale_path).read_text().splitlines()
+                          if "=" in line and not line.lstrip().startswith("#"))
+            locale = next((values[k].strip().strip('"').strip("'") for k in
+                           ("LC_ALL", "LC_MESSAGES", "LANG") if values.get(k)), "")
+        except OSError:
+            pass
+    return "zh" if locale.lower().startswith("zh") else "en"
+
+
+LANGUAGE = detect_language()
+
+
+def tr(zh, en):
+    return zh if LANGUAGE == "zh" else en
+
+
 def load_font(paths, size):
     for path in paths:
         try:
@@ -140,7 +162,7 @@ class Display:
         draw = ImageDraw.Draw(image)
         draw.rectangle((0, 0, 319, 27), fill=SURFACE)
         draw.text((9, 14), "Zero SSH", font=self.title, fill=INK, anchor="lm")
-        draw.text((311, 15), f"{len(active)} 个会话", font=self.ui, fill=ACCENT, anchor="rm")
+        draw.text((311, 15), tr(f"{len(active)} 个会话", f"{len(active)} sessions"), font=self.ui, fill=ACCENT, anchor="rm")
         first = min(max(0, min(index, len(hosts) - 1) - 1), max(0, len(hosts) - 3))
         for row, host in enumerate(hosts[first:first + 3], start=first):
             y = 30 + (row - first) * 25
@@ -152,7 +174,7 @@ class Display:
             draw.text((14, y + 12), fitted(self.ui, host["name"], 143), font=self.ui,
                       fill=INK, anchor="lm")
             if host["id"] in active:
-                detail = "已连接"
+                detail = tr("已连接", "Connected")
             elif host.get("kind") == "demo":
                 detail = "Local shell"
             else:
@@ -160,26 +182,33 @@ class Display:
             draw.text((304, y + 12), fitted(self.ui, detail, 132), font=self.ui,
                       fill=ACCENT if host["id"] in active else MUTED, anchor="rm")
         if not hosts:
-            draw.text((14, 66), "暂无主机", font=self.ui, fill=MUTED, anchor="lm")
+            draw.text((14, 66), tr("暂无主机", "No hosts"), font=self.ui, fill=MUTED, anchor="lm")
         y = 105
         draw.rounded_rectangle((7, y, 312, y + 23), radius=5, fill=SURFACE,
                                outline=ACCENT if index == len(hosts) else SURFACE)
-        draw.text((14, y + 12), "+ 添加主机", font=self.ui, fill=ACCENT, anchor="lm")
+        draw.text((14, y + 12), tr("+ 添加主机", "+ Add host"), font=self.ui, fill=ACCENT, anchor="lm")
         draw.text((9, 139), fitted(self.ui, status, 300), font=self.ui, fill=MUTED, anchor="lm")
         draw.rectangle((0, 149, 319, 169), fill=SURFACE)
-        draw.text((9, 159), "F/X 选择  Enter 打开  Bksp 结束  长按 Esc 3 秒退出", font=self.ui,
+        draw.text((9, 159), tr("F/X 选择 Enter 打开 长按 Esc 3 秒退出", "F/X Select Enter Open Esc hold 3s Exit"), font=self.ui,
                   fill=INK, anchor="lm")
         return image
 
-    def host_form_image(self, fields, focus, status):
+    def host_form_image(self, fields, focus, status, access=None):
         image = Image.new("RGB", SIZE, BACKGROUND)
         draw = ImageDraw.Draw(image)
         draw.rectangle((0, 0, 319, 22), fill=SURFACE)
-        draw.text((9, 11), "添加主机", font=self.title, fill=INK, anchor="lm")
-        draw.text((311, 11), "Tab/↑↓ 切换   Esc 取消", font=self.ui, fill=MUTED, anchor="rm")
-        for row, (key, label, placeholder, _) in enumerate(HOST_FIELDS):
-            y = 25 + row * 19
-            selected = row == focus
+        draw.text((9, 11), tr("添加主机", "Add host"), font=self.title, fill=INK, anchor="lm")
+        draw.text((311, 11), tr("Tab/↑↓ 切换 Esc 返回", "Tab/↑↓ Move Esc Back"), font=self.ui, fill=MUTED, anchor="rm")
+        page = 0 if focus <= 2 else 1
+        visible = HOST_FIELDS[:3] if page == 0 else HOST_FIELDS[3:]
+        english = {"name": ("Name", "Address if empty"), "hostname": ("Address", "Hostname or IP"),
+                   "port": ("Port", "22"), "user": ("User", "SSH username"),
+                   "password": ("Password", "Ask on connection")}
+        for row, (key, label, placeholder, _) in enumerate(visible):
+            if LANGUAGE != "zh":
+                label, placeholder = english[key]
+            y = 27 + row * 24
+            selected = (row if page == 0 else row + 3) == focus
             draw.text((9, y + 8), label, font=self.ui, fill=INK, anchor="lm")
             draw.rounded_rectangle((69, y, 312, y + 17), radius=4, fill=SURFACE,
                                    outline=ACCENT if selected else SURFACE)
@@ -192,12 +221,14 @@ class Display:
                 value += "_"
             draw.text((76, y + 8), fitted(self.ui, value or placeholder, 228), font=self.ui,
                       fill=INK if value else MUTED, anchor="lm")
-        draw.text((9, 127), "使用 SSH 私钥请使用 Web 访问", font=self.ui, fill=MUTED, anchor="lm")
-        draw.text((9, 142), "电脑 SSH 转发后访问 http://127.0.0.1:4173", font=self.ui,
-                  fill=MUTED, anchor="lm")
+        draw.text((9, 106), tr("私钥请用 Web 导入", "Import private keys via Web"), font=self.ui, fill=MUTED, anchor="lm")
+        if access and access.get("url"):
+            draw.text((9, 123), fitted(self.ui, access["url"], 300), font=self.ui, fill=ACCENT, anchor="lm")
+            draw.text((9, 140), tr("访问码: ", "Access code: ") + access.get("code", ""), font=self.ui, fill=INK, anchor="lm")
         draw.rounded_rectangle((7, 151, 312, 168), radius=4, fill=SURFACE,
-                               outline=ACCENT if focus == len(HOST_FIELDS) else SURFACE)
-        draw.text((160, 159), fitted(self.ui, status or "Enter 保存主机", 294), font=self.ui,
+                               outline=ACCENT)
+        action = tr("Enter 下一页 · 1/2", "Enter Next · 1/2") if page == 0 else tr("Enter 保存 · 2/2", "Enter Save · 2/2")
+        draw.text((160, 159), fitted(self.ui, status or action, 294), font=self.ui,
                   fill=INK if status else ACCENT, anchor="mm")
         return image
 
@@ -206,7 +237,7 @@ class Display:
         draw = ImageDraw.Draw(image)
         draw.rectangle((0, 0, 319, 17), fill=SURFACE)
         draw.text((5, 9), fitted(self.ui, name, 190), font=self.ui, fill=ACCENT, anchor="lm")
-        draw.text((315, 9), "Esc 返回主机", font=self.ui, fill=INK, anchor="rm")
+        draw.text((315, 9), tr("Esc 返回主机", "Esc Hosts"), font=self.ui, fill=INK, anchor="rm")
         for line_number in range(screen.lines):
             line = screen.buffer[line_number]
             for column in range(screen.columns):
@@ -296,6 +327,7 @@ class App:
         self.terminal = None
         self.host_form = None
         self.form_focus = 0
+        self.access = None
         self.pressed = set()
         self.caps = False
         self.exit_at = None
@@ -314,7 +346,7 @@ class App:
         try:
             data = self.request("/api/state")
         except OSError:
-            self.status = "Waiting for Zero SSH service"
+            self.status = tr("等待 Zero SSH 服务", "Waiting for Zero SSH service")
             return
         selecting_add = bool(self.hosts) and self.index == len(self.hosts)
         selected = self.hosts[self.index]["id"] if self.index < len(self.hosts) else None
@@ -330,7 +362,7 @@ class App:
         if self.terminal:
             return self.display.terminal_image(self.terminal.name, self.terminal.screen, self.status)
         if self.host_form is not None:
-            return self.display.host_form_image(self.host_form, self.form_focus, self.status)
+            return self.display.host_form_image(self.host_form, self.form_focus, self.status, self.access)
         return self.display.list_image(self.hosts, self.active, self.index, self.status)
 
     def handle_key(self, code, value):
@@ -362,7 +394,10 @@ class App:
         if held:
             return False
         if self.host_form is not None:
-            self.host_form = None
+            if self.form_focus >= 3:
+                self.form_focus = 2
+            else:
+                self.host_form = None
             self.status = ""
         elif self.terminal:
             self.terminal.close()
@@ -377,7 +412,7 @@ class App:
             self.terminal.socket.send(keys)
         except (OSError, websocket.WebSocketException):
             self.terminal.closed.set()
-            self.status = "Connection closed"
+            self.status = tr("连接已关闭", "Connection closed")
 
     def handle_host_key(self, code, value):
         if code in LIST_MOVES:
@@ -389,6 +424,10 @@ class App:
             if code in (ENTER, KP_ENTER):
                 self.host_form = {key: "" for key, *_ in HOST_FIELDS}
                 self.form_focus = 0
+                try:
+                    self.access = self.request("/api/access")
+                except OSError:
+                    self.access = None
                 self.status = ""
             return
         import websocket
@@ -411,7 +450,8 @@ class App:
     def handle_form_key(self, code, value):
         if code in (TAB, UP, DOWN):
             direction = -1 if code == UP or (code == TAB and self.pressed & SHIFT) else 1
-            self.form_focus = (self.form_focus + direction) % (len(HOST_FIELDS) + 1)
+            low, high = (0, 3) if self.form_focus <= 2 else (3, 6)
+            self.form_focus = low + (self.form_focus - low + direction) % (high - low)
             return
         if code in (ENTER, KP_ENTER):
             if value == 1:
@@ -437,7 +477,7 @@ class App:
 
     def save_host(self):
         fields = {key: value.strip() for key, value in self.host_form.items() if key != "password"}
-        for key, message in (("hostname", "请输入主机地址"), ("user", "请输入 SSH 用户名")):
+        for key, message in (("hostname", tr("请输入主机地址", "Enter host address")), ("user", tr("请输入 SSH 用户名", "Enter SSH user"))):
             if not fields[key]:
                 self.form_focus = next(i for i, field in enumerate(HOST_FIELDS) if field[0] == key)
                 self.status = message
@@ -446,7 +486,7 @@ class App:
         fields["port"] = int(fields["port"] or "22")
         if not 1 <= fields["port"] <= 65535:
             self.form_focus = 2
-            self.status = "端口须为 1–65535"
+            self.status = tr("端口须为 1–65535", "Port must be 1–65535")
             return
         if self.host_form["password"]:
             fields["password"] = self.host_form["password"]
@@ -458,7 +498,7 @@ class App:
         self.index = len(self.hosts)
         self.hosts = [*self.hosts, host]
         self.host_form = None
-        self.status = "主机已保存"
+        self.status = tr("主机已保存", "Host saved")
 
     def drain_terminal(self):
         changed = False
@@ -471,7 +511,7 @@ class App:
                 changed = True
                 if data is None:
                     self.terminal.closed.set()
-                    self.status = "Connection closed"
+                    self.status = tr("连接已关闭", "Connection closed")
                 else:
                     self.terminal.stream.feed(data)
         return changed
@@ -527,7 +567,11 @@ def main():
     parser.add_argument("--framebuffer", default=FRAMEBUFFER)
     parser.add_argument("--keyboard", default=KEYBOARD)
     parser.add_argument("--preview", type=Path)
+    parser.add_argument("--lang", choices=("zh", "en"))
     args = parser.parse_args()
+    global LANGUAGE
+    if args.lang:
+        LANGUAGE = args.lang
     if args.preview:
         hosts = [
             {"id": "one", "name": "Local demo", "kind": "demo"},
