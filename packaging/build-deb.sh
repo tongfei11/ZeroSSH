@@ -8,7 +8,7 @@ if [ "${1:-}" = --node-modules ]; then MODULES=$2; shift 2; fi
 [ "$(node -p process.versions.modules)" = 115 ] || { echo 'Node 20 (ABI 115) is required.' >&2; exit 1; }
 MODULES=$(CDPATH= cd -- "$MODULES" && pwd)
 node -e 'require(process.argv[1]);' "$MODULES/node-pty"
-VERSION=0.1.0+build0017
+VERSION=$(node -p 'require(process.argv[1]).version' "$ROOT/package.json")
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT HUP INT TERM
 APP=$STAGE/usr/lib/zero-ssh

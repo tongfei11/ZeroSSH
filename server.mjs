@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { WebSocket, WebSocketServer } from 'ws';
 
-const version = '0017';
+const buildNumber = '0018';
 const accessCode = String(randomInt(100000, 1000000));
 const webSessions = new Set();
 const loginAttempts = new Map();
@@ -41,6 +41,7 @@ function authenticated(request) {
 }
 const port = Number(process.env.PORT ?? 4173);
 const root = fileURLToPath(new URL('.', import.meta.url));
+const { version } = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
 const publicDir = resolve(root, 'public');
 const dataDir = resolve(process.env.CARDPUTER_DATA_DIR ?? resolve(root, '.data'));
 const hostsFile = resolve(dataDir, 'hosts.json');
@@ -450,7 +451,7 @@ server.on('upgrade', (request, socket, head) => {
 
 const inheritedSocket = process.env.LISTEN_PID === String(process.pid) && process.env.LISTEN_FDS === '1';
 server.listen(inheritedSocket ? { fd: 3 } : { port, host: process.env.ZERO_SSH_MODE === 'device' ? '0.0.0.0' : '127.0.0.1' }, () => {
-  console.log(`CardputerZero ${version} · http://127.0.0.1:${port}`);
+  console.log(`CardputerZero ${version} (build ${buildNumber}) · http://127.0.0.1:${port}`);
 });
 function shutdown() {
   for (const id of sessions.keys()) closeSession(id);
