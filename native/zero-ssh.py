@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import queue
+import tempfile
 import selectors
 import struct
 import sys
@@ -96,6 +97,53 @@ def detect_language(environ=None, locale_path="/etc/default/locale"):
 LANGUAGE = detect_language()
 
 
+THEMES = {"Default": (INK, BACKGROUND), "Dracula": ("#f8f8f2", "#282a36"),
+          "Nord": ("#d8dee9", "#2e3440"), "Solarized Dark": ("#839496", "#002b36"),
+          "Gruvbox Dark": ("#ebdbb2", "#282828")}
+THEME_ANSI = {
+    "Dracula": ["#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2",
+                "#6272a4", "#ff6e6e", "#69ff94", "#ffffa5", "#d6acff", "#ff92df", "#a4ffff", "#ffffff"],
+    "Nord": ["#3b4252", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0", "#e5e9f0",
+             "#4c566a", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#8fbcbb", "#eceff4"],
+    "Solarized Dark": ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5",
+                       "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3"],
+    "Gruvbox Dark": ["#282828", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#a89984",
+                     "#928374", "#fb4934", "#b8bb26", "#fabd2f", "#83a598", "#d3869b", "#8ec07c", "#ebdbb2"],
+}
+LANG_OVERRIDE = None
+
+
+class Settings:
+    def __init__(self, path=None):
+        self.path = Path(path or Path.home() / ".config/zero-ssh/settings.json")
+        self.language, self.theme = "system", "Default"
+        try:
+            data = json.loads(self.path.read_text())
+            if data.get("language") in ("system", "zh", "en"):
+                self.language = data["language"]
+            if data.get("theme") in THEMES:
+                self.theme = data["theme"]
+        except (OSError, ValueError, AttributeError):
+            pass
+
+    def apply(self):
+        global LANGUAGE
+        LANGUAGE = LANG_OVERRIDE or (detect_language() if self.language == "system" else self.language)
+
+    def save(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(dir=self.path.parent, prefix=".settings-")
+        try:
+            with os.fdopen(fd, "w") as output:
+                json.dump({"language": self.language, "theme": self.theme}, output)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, self.path)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+
 def tr(zh, en):
     return zh if LANGUAGE == "zh" else en
 
@@ -149,6 +197,7 @@ def terminal_key(code, pressed, caps, application_cursor=False):
 
 class Display:
     def __init__(self):
+        self.theme = "Default"
         self.ui = load_font((FONT_CJK, FONT_UI, "DejaVuSans.ttf"), 12)
         self.title = load_font((FONT_CJK, FONT_UI, "DejaVuSans.ttf"), 17)
         self.mono = load_font((FONT_MONO, "DejaVuSansMono.ttf"), 11)
@@ -163,9 +212,9 @@ class Display:
         draw.rectangle((0, 0, 319, 27), fill=SURFACE)
         draw.text((9, 14), "Zero SSH", font=self.title, fill=INK, anchor="lm")
         draw.text((311, 15), tr(f"{len(active)} 个会话", f"{len(active)} sessions"), font=self.ui, fill=ACCENT, anchor="rm")
-        first = min(max(0, min(index, len(hosts) - 1) - 1), max(0, len(hosts) - 3))
-        for row, host in enumerate(hosts[first:first + 3], start=first):
-            y = 30 + (row - first) * 25
+        first = min(max(0, min(index, len(hosts) - 1) - 1), max(0, len(hosts) - 2))
+        for row, host in enumerate(hosts[first:first + 2], start=first):
+            y = 55 + (row - first) * 25
             selected = row == index
             draw.rounded_rectangle(
                 (7, y, 312, y + 23), radius=5, fill=SURFACE,
@@ -183,32 +232,28 @@ class Display:
                       fill=ACCENT if host["id"] in active else MUTED, anchor="rm")
         if not hosts:
             draw.text((14, 66), tr("暂无主机", "No hosts"), font=self.ui, fill=MUTED, anchor="lm")
-        y = 105
+        y = 30
         draw.rounded_rectangle((7, y, 312, y + 23), radius=5, fill=SURFACE,
                                outline=ACCENT if index == len(hosts) else SURFACE)
         draw.text((14, y + 12), tr("+ 添加主机", "+ Add host"), font=self.ui, fill=ACCENT, anchor="lm")
+        draw.rounded_rectangle((7, 105, 312, 128), radius=5, fill=SURFACE,
+                               outline=ACCENT if index == len(hosts) + 1 else SURFACE)
+        draw.text((14, 117), tr("设置", "Settings"), font=self.ui, fill=ACCENT, anchor="lm")
         draw.text((9, 139), fitted(self.ui, status, 300), font=self.ui, fill=MUTED, anchor="lm")
         draw.rectangle((0, 149, 319, 169), fill=SURFACE)
-        hints = (
-            ("F / X", tr("选择", "Select")),
-            ("Enter", tr("打开", "Open")),
-            ("Esc 3s", tr("退出", "Exit")),
-        )
-        for column, (key, action) in enumerate(hints):
-            left = column * 107
-            if column:
-                draw.line((left, 152, left, 166), fill=MUTED)
-            draw.text((left + 7, 159), key, font=self.ui, fill=ACCENT, anchor="lm")
-            draw.text((min(left + 100, 313), 159), action, font=self.ui,
-                      fill=INK, anchor="rm")
+        for x, label in ((9, tr("Tab 切换", "Tab Switch")),
+                         (100, tr("E 编辑", "E Edit")),
+                         (169, tr("退格断开", "Backspace Disconnect"))):
+            draw.text((x, 159), label, font=self.ui, fill=INK, anchor="lm")
         return image
 
-    def host_form_image(self, fields, focus, status, access=None):
+    def host_form_image(self, fields, focus, status, access=None, editing=False):
         image = Image.new("RGB", SIZE, BACKGROUND)
         draw = ImageDraw.Draw(image)
         draw.rectangle((0, 0, 319, 22), fill=SURFACE)
-        draw.text((9, 11), tr("添加主机", "Add host"), font=self.title, fill=INK, anchor="lm")
-        draw.text((311, 11), tr("Tab/↑↓ 切换 Esc 返回", "Tab/↑↓ Move Esc Back"), font=self.ui, fill=MUTED, anchor="rm")
+        title = tr("编辑主机", "Edit host") if editing else tr("添加主机", "Add host")
+        draw.text((9, 11), title, font=self.title, fill=INK, anchor="lm")
+        draw.text((311, 11), tr("Tab 切换", "Tab to switch"), font=self.ui, fill=MUTED, anchor="rm")
         page = 0 if focus <= 2 else 1
         visible = HOST_FIELDS[:3] if page == 0 else HOST_FIELDS[3:]
         english = {"name": ("Name", "Address if empty"), "hostname": ("Address", "Hostname or IP"),
@@ -231,6 +276,11 @@ class Display:
                 value += "_"
             draw.text((76, y + 8), fitted(self.ui, value or placeholder, 228), font=self.ui,
                       fill=INK if value else MUTED, anchor="lm")
+        if editing and page == 1:
+            draw.rounded_rectangle((69, 77, 312, 96), radius=4, fill=SURFACE,
+                                   outline=ACCENT if focus == 6 else SURFACE)
+            draw.text((76, 86), tr("删除主机", "Delete host"), font=self.ui,
+                      fill="#ff7777", anchor="lm")
         draw.text((9, 106), tr("私钥请用 Web 导入", "Import private keys via Web"), font=self.ui, fill=MUTED, anchor="lm")
         if access and access.get("url"):
             draw.text((9, 123), fitted(self.ui, access["url"], 300), font=self.ui, fill=ACCENT, anchor="lm")
@@ -242,23 +292,44 @@ class Display:
                   fill=INK if status else ACCENT, anchor="mm")
         return image
 
-    def terminal_image(self, name, screen, status):
+    def settings_image(self, settings, focus, status):
         image = Image.new("RGB", SIZE, BACKGROUND)
+        draw = ImageDraw.Draw(image)
+        draw.text((9, 12), tr("设置", "Settings"), font=self.title, fill=INK)
+        labels = [(tr("语言", "Language"), {"system": "System", "zh": "中文", "en": "English"}[settings.language]),
+                  (tr("终端主题", "Terminal theme"), settings.theme)]
+        for row, (label, value) in enumerate(labels):
+            y = 40 + row * 28
+            draw.rounded_rectangle((7, y, 312, y + 24), radius=4, fill=SURFACE,
+                                   outline=ACCENT if row == focus else SURFACE)
+            draw.text((14, y + 12), label, font=self.ui, fill=INK, anchor="lm")
+            draw.text((302, y + 12), value, font=self.ui, fill=ACCENT, anchor="rm")
+        fg, bg = THEMES[self.theme]
+        draw.rectangle((7, 101, 312, 132), fill=bg)
+        draw.text((13, 104), "user@host $ ls", font=self.mono, fill=fg)
+        draw.text((13, 118), "folder/", font=self.mono, fill=self.color("blue", fg))
+        draw.text((80, 118), "ready", font=self.mono, fill=self.color("green", fg))
+        draw.text((9, 139), fitted(self.ui, status, 300), font=self.ui, fill=MUTED)
+        draw.text((9, 156), tr("Tab 切换   Enter 调整", "Tab Select   Enter Change"), font=self.ui, fill=ACCENT)
+        return image
+
+    def terminal_image(self, name, screen, status):
+        foreground, background = THEMES[self.theme]
+        image = Image.new("RGB", SIZE, background)
         draw = ImageDraw.Draw(image)
         draw.rectangle((0, 0, 319, 17), fill=SURFACE)
         draw.text((5, 9), fitted(self.ui, name, 190), font=self.ui, fill=ACCENT, anchor="lm")
-        draw.text((315, 9), tr("Esc 返回主机", "Esc Hosts"), font=self.ui, fill=INK, anchor="rm")
         for line_number in range(screen.lines):
             line = screen.buffer[line_number]
             for column in range(screen.columns):
                 cell = line[column]
                 x = 4 + column * self.cell_width
                 y = 19 + line_number * self.cell_height
-                fg = self.color(cell.fg, INK)
-                bg = self.color(cell.bg, BACKGROUND)
+                fg = self.color(cell.fg, foreground)
+                bg = self.color(cell.bg, background)
                 if cell.reverse:
                     fg, bg = bg, fg
-                if bg != BACKGROUND:
+                if bg != background:
                     draw.rectangle((x, y, x + self.cell_width - 1, y + self.cell_height - 1), fill=bg)
                 if not cell.data or cell.data == " ":
                     continue
@@ -275,10 +346,11 @@ class Display:
             draw.text((5, 160), fitted(self.ui, status, 310), font=self.ui, fill=MUTED, anchor="lm")
         return image
 
-    @staticmethod
-    def color(value, default):
+    def color(self, value, default):
         if len(value) == 6 and all(c in "0123456789abcdefABCDEF" for c in value):
             return "#" + value
+        if self.theme in THEME_ANSI and value in TERMINAL_COLORS:
+            return THEME_ANSI[self.theme][list(TERMINAL_COLORS).index(value)]
         return TERMINAL_COLORS.get(value, default)
 
 
@@ -326,11 +398,21 @@ class Terminal:
 
 
 class App:
-    def __init__(self, origin, display):
+    def __init__(self, origin, display, settings=None):
         self.origin = origin
         self.display = display
+        self.settings = settings or Settings()
+        self.settings.apply()
+        if self.display is not None:
+            self.display.theme = self.settings.theme
+        self.settings_focus = None
+        self.host_action = None
+        self.action_focus = 0
+        self.delete_confirm = False
+        self.editing_host = None
         self.opener = build_opener(ProxyHandler({}))
         self.hosts = []
+        self.loaded = False
         self.active = {}
         self.index = 0
         self.status = ""
@@ -341,6 +423,7 @@ class App:
         self.pressed = set()
         self.caps = False
         self.exit_at = None
+        self.toast_until = 0
 
     def request(self, path, method="GET", data=None):
         payload = json.dumps(data).encode() if data is not None else None
@@ -358,21 +441,50 @@ class App:
         except OSError:
             self.status = tr("等待 Zero SSH 服务", "Waiting for Zero SSH service")
             return
-        selecting_add = bool(self.hosts) and self.index == len(self.hosts)
+        extra_index = self.index - len(self.hosts) if self.loaded and self.index >= len(self.hosts) else None
         selected = self.hosts[self.index]["id"] if self.index < len(self.hosts) else None
         self.hosts = data["hosts"]
-        self.index = len(self.hosts) if selecting_add else next(
+        self.index = len(self.hosts) + extra_index if extra_index is not None else next(
             (i for i, host in enumerate(self.hosts) if host["id"] == selected),
             min(self.index, max(0, len(self.hosts) - 1)),
         )
         self.active = {item["hostId"]: item for item in data["sessions"] if not item.get("exited")}
+        self.loaded = True
         self.status = ""
 
     def draw(self):
+        image = self.draw_page()
+        if time.monotonic() < self.toast_until:
+            draw = ImageDraw.Draw(image)
+            draw.rounded_rectangle((4, 143, 315, 168), radius=5, fill=SURFACE, outline=ACCENT)
+            draw.text((160, 156), tr("长按 Esc 3 秒退出", "Hold Esc for 3s to exit"),
+                      font=self.display.ui, fill=INK, anchor="mm")
+        return image
+
+    def draw_page(self):
+        if self.host_action is not None:
+            image = Image.new("RGB", SIZE, BACKGROUND)
+            draw = ImageDraw.Draw(image)
+            draw.text((9, 12), fitted(self.display.title, self.host_action["name"], 300),
+                      font=self.display.title, fill=INK)
+            labels = ([tr("取消删除", "Cancel"), tr("确认删除主机", "Delete host")] if self.delete_confirm else
+                      [tr("连接 / 切回", "Connect / Resume"), tr("断开", "Disconnect"),
+                       tr("编辑", "Edit")])
+            for index, label in enumerate(labels):
+                y = 40 + index * 25
+                draw.rounded_rectangle((7, y, 312, y + 22), radius=4, fill=SURFACE,
+                                       outline=ACCENT if index == self.action_focus else SURFACE)
+                draw.text((15, y + 11), label, font=self.display.ui, fill=INK, anchor="lm")
+            draw.text((9, 157), self.status or tr("Tab 切换", "Tab to switch"),
+                      font=self.display.ui, fill=MUTED, anchor="lm")
+            return image
+        if self.settings_focus is not None:
+            return self.display.settings_image(self.settings, self.settings_focus, self.status)
         if self.terminal:
             return self.display.terminal_image(self.terminal.name, self.terminal.screen, self.status)
         if self.host_form is not None:
-            return self.display.host_form_image(self.host_form, self.form_focus, self.status, self.access)
+            return self.display.host_form_image(self.host_form, self.form_focus, self.status, self.access,
+                                                self.editing_host is not None)
         return self.display.list_image(self.hosts, self.active, self.index, self.status)
 
     def handle_key(self, code, value):
@@ -388,6 +500,23 @@ class App:
             keys = terminal_key(code, self.pressed, self.caps, (1 << 5) in self.terminal.screen.mode)
             if keys and not self.terminal.closed.is_set():
                 self.send_keys(keys)
+        elif self.host_action is not None:
+            self.handle_action_key(code, value)
+        elif self.settings_focus is not None:
+            if code in (*LIST_MOVES, TAB):
+                self.settings_focus = 1 - self.settings_focus
+            elif code in (105, 106, 44, 46, ENTER, KP_ENTER) and value == 1:
+                key = "language" if self.settings_focus == 0 else "theme"
+                choices = ["system", "zh", "en"] if key == "language" else list(THEMES)
+                step = -1 if code in (105, 44) else 1
+                setattr(self.settings, key, choices[(choices.index(getattr(self.settings, key)) + step) % len(choices)])
+                self.settings.apply()
+                self.display.theme = self.settings.theme
+                try:
+                    self.settings.save()
+                    self.status = ""
+                except OSError as error:
+                    self.status = str(error)
         elif self.host_form is not None:
             self.handle_form_key(code, value)
         else:
@@ -399,11 +528,22 @@ class App:
             self.exit_at = time.monotonic() + ESC_HOLD_SECONDS
         if value != 0 or self.exit_at is None:
             return True
-        held = time.monotonic() >= self.exit_at
+        released_at = time.monotonic()
+        held = released_at >= self.exit_at
         self.exit_at = None
         if held:
             return False
-        if self.host_form is not None:
+        if self.host_action is not None:
+            if self.delete_confirm:
+                self.delete_confirm = False
+                self.host_action = None
+            else:
+                self.host_action = None
+            self.status = ""
+        elif self.settings_focus is not None:
+            self.settings_focus = None
+            self.status = ""
+        elif self.host_form is not None:
             if self.form_focus >= 3:
                 self.form_focus = 2
             else:
@@ -413,6 +553,7 @@ class App:
             self.terminal.close()
             self.terminal = None
             self.refresh()
+        self.toast_until = released_at + 2
         return True
 
     def send_keys(self, keys):
@@ -425,13 +566,20 @@ class App:
             self.status = tr("连接已关闭", "Connection closed")
 
     def handle_host_key(self, code, value):
-        if code in LIST_MOVES:
-            self.index = (self.index + LIST_MOVES[code]) % (len(self.hosts) + 1)
+        if code in (*LIST_MOVES, TAB):
+            order = [len(self.hosts), *range(len(self.hosts)), len(self.hosts) + 1]
+            self.index = order[(order.index(self.index) + LIST_MOVES.get(code, 1)) % len(order)]
             return
         if value != 1:
             return
+        if self.index == len(self.hosts) + 1:
+            if code in (ENTER, KP_ENTER):
+                self.settings_focus = 0
+                self.status = ""
+            return
         if self.index == len(self.hosts):
             if code in (ENTER, KP_ENTER):
+                self.editing_host = None
                 self.host_form = {key: "" for key, *_ in HOST_FIELDS}
                 self.form_focus = 0
                 try:
@@ -443,13 +591,17 @@ class App:
         import websocket
 
         host = self.hosts[self.index]
+        if code == 18:
+            self.host_action = host
+            self.action_focus = 2
+            self.handle_action_key(ENTER, 1)
+            return
         if code in (ENTER, KP_ENTER):
-            try:
-                session = self.request("/api/sessions", "POST", {"hostId": host["id"]})
-                self.terminal = Terminal(self.origin, session, self.display.columns, self.display.rows)
-                self.status = ""
-            except (OSError, websocket.WebSocketException) as error:
-                self.status = str(error)
+            self.host_action = host
+            self.action_focus = 0
+            self.delete_confirm = False
+            self.status = ""
+            self.handle_action_key(ENTER, 1)
         elif code in (BACKSPACE, DELETE) and host["id"] in self.active:
             try:
                 self.request("/api/sessions/" + self.active[host["id"]]["id"], "DELETE")
@@ -457,20 +609,63 @@ class App:
             except OSError as error:
                 self.status = str(error)
 
+    def handle_action_key(self, code, value):
+        import websocket
+
+        if code in (*LIST_MOVES, TAB):
+            self.action_focus = (self.action_focus + LIST_MOVES.get(code, 1)) % (2 if self.delete_confirm else 3)
+            return
+        if code not in (ENTER, KP_ENTER) or value != 1:
+            return
+        host = self.host_action
+        try:
+            if self.delete_confirm:
+                if self.action_focus == 1:
+                    self.request("/api/hosts/" + host["id"], "DELETE")
+                    self.host_action = None
+                    self.host_form = None
+                    self.editing_host = None
+                    self.refresh()
+                else:
+                    self.delete_confirm = False
+                    self.host_action = None
+            elif self.action_focus == 0:
+                session = self.request("/api/sessions", "POST", {"hostId": host["id"]})
+                self.terminal = Terminal(self.origin, session, self.display.columns, self.display.rows)
+                self.host_action = None
+            elif self.action_focus == 1:
+                session = self.active.get(host["id"])
+                if session:
+                    self.request("/api/sessions/" + session["id"], "DELETE")
+                self.host_action = None
+                self.refresh()
+            elif self.action_focus == 2:
+                self.editing_host = host
+                self.host_form = {key: str(host.get(key, "")) if key != "password" else "" for key, *_ in HOST_FIELDS}
+                self.form_focus = 0
+                self.host_action = None
+                self.access = self.request("/api/access")
+        except (OSError, websocket.WebSocketException) as error:
+            self.status = str(error)
+
     def handle_form_key(self, code, value):
         if code in (TAB, UP, DOWN):
             direction = -1 if code == UP or (code == TAB and self.pressed & SHIFT) else 1
-            low, high = (0, 3) if self.form_focus <= 2 else (3, 6)
+            low, high = (0, 3) if self.form_focus <= 2 else (3, 7 if self.editing_host else 6)
             self.form_focus = low + (self.form_focus - low + direction) % (high - low)
             return
         if code in (ENTER, KP_ENTER):
             if value == 1:
                 if self.form_focus == len(HOST_FIELDS):
                     self.save_host()
+                elif self.form_focus == 6:
+                    self.host_action = self.editing_host
+                    self.delete_confirm = True
+                    self.action_focus = 0
                 else:
                     self.form_focus += 1
             return
-        if self.form_focus == len(HOST_FIELDS):
+        if self.form_focus >= len(HOST_FIELDS):
             return
         key, _, _, limit = HOST_FIELDS[self.form_focus]
         current = self.host_form[key]
@@ -501,12 +696,19 @@ class App:
         if self.host_form["password"]:
             fields["password"] = self.host_form["password"]
         try:
-            host = self.request("/api/hosts", "POST", {**fields, "authMode": "password"})
+            editing = self.editing_host
+            mode = "password" if fields.get("password") else (editing or {}).get("authMode", "password")
+            host = self.request("/api/hosts/" + editing["id"] if editing else "/api/hosts",
+                                "PUT" if editing else "POST", {**fields, "authMode": mode})
         except OSError as error:
             self.status = str(error)
             return
-        self.index = len(self.hosts)
-        self.hosts = [*self.hosts, host]
+        if self.editing_host:
+            self.hosts = [host if item["id"] == host["id"] else item for item in self.hosts]
+        else:
+            self.index = len(self.hosts)
+            self.hosts = [*self.hosts, host]
+        self.editing_host = None
         self.host_form = None
         self.status = tr("主机已保存", "Host saved")
 
@@ -528,7 +730,7 @@ class App:
 
 
 def run(args):
-    app = App(f"http://127.0.0.1:{args.port}", Display())
+    app = App(f"http://127.0.0.1:{args.port}", Display(), Settings(args.settings_path))
     app.refresh()
     refresh_at = time.monotonic() + 3
     with open(args.framebuffer, "wb", buffering=0) as framebuffer, \
@@ -540,7 +742,10 @@ def run(args):
                 if app.exit_at is not None and time.monotonic() >= app.exit_at:
                     return
                 dirty |= app.drain_terminal()
-                if app.exit_at is None and not app.terminal and app.host_form is None and time.monotonic() >= refresh_at:
+                if app.toast_until and time.monotonic() >= app.toast_until:
+                    app.toast_until = 0
+                    dirty = True
+                if app.exit_at is None and not app.terminal and app.host_form is None and app.settings_focus is None and app.host_action is None and time.monotonic() >= refresh_at:
                     previous = (app.hosts, app.active, app.index, app.status)
                     app.refresh()
                     dirty |= previous != (app.hosts, app.active, app.index, app.status)
@@ -578,8 +783,10 @@ def main():
     parser.add_argument("--keyboard", default=KEYBOARD)
     parser.add_argument("--preview", type=Path)
     parser.add_argument("--lang", choices=("zh", "en"))
+    parser.add_argument("--settings-path", type=Path)
     args = parser.parse_args()
-    global LANGUAGE
+    global LANGUAGE, LANG_OVERRIDE
+    LANG_OVERRIDE = args.lang
     if args.lang:
         LANGUAGE = args.lang
     if args.preview:
