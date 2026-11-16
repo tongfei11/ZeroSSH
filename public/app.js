@@ -14,12 +14,9 @@ let input;
 let editing;
 let starting = false;
 let terminalTail = '';
-let authKind;
-let queuedPassword;
 
 function clearAuthPrompt() {
   terminalTail = '';
-  authKind = undefined;
   authForm.hidden = true;
   secretInput.value = '';
 }
@@ -28,10 +25,11 @@ function detectAuthPrompt(data) {
   terminalTail = (terminalTail + data).split(/[\r\n]/).at(-1).slice(-500);
   const isPassphrase = /^Enter passphrase for key .+:\s*$/i.test(terminalTail);
   const isPassword = /^(?:.+['’]s )?password:\s*$/i.test(terminalTail);
-  if (!isPassphrase && !isPassword) return;
-  authKind = isPassphrase ? 'passphrase' : 'password';
-  if (isPassword && queuedPassword) {
-    sendSecret(queuedPassword.value);
+  if (!isPassphrase && !isPassword) {
+    if (!authForm.hidden && /[\r\n]/.test(data)) {
+      clearAuthPrompt();
+      terminal.focus();
+    }
     return;
   }
   element('ssh-secret-label').textContent = isPassphrase ? 'SSH 私钥口令' : 'SSH 登录密码';
@@ -43,7 +41,6 @@ function detectAuthPrompt(data) {
 
 function sendSecret(value) {
   if (socket?.readyState !== WebSocket.OPEN) return;
-  queuedPassword = undefined;
   socket.send(value + '\r');
   clearAuthPrompt();
   terminal.focus();
@@ -53,15 +50,6 @@ authForm.onsubmit = (event) => {
   event.preventDefault();
   sendSecret(secretInput.value);
 };
-
-function queuePassword(value) {
-  queuedPassword = value ? { value } : undefined;
-  if (!queuedPassword) return;
-  const entry = queuedPassword;
-  setTimeout(() => {
-    if (queuedPassword === entry) queuedPassword = undefined;
-  }, 30_000);
-}
 
 function showNotice(message = '') {
   element('notice').textContent = message;
@@ -88,31 +76,28 @@ function node(tag, className, label) {
 
 function renderHosts() {
   const query = element('search').value.trim().toLowerCase();
-  const groups = Map.groupBy(state.hosts.filter((host) =>
-    [host.name, host.hostname, host.user, host.group].some((value) => value?.toLowerCase().includes(query))
-  ), (host) => host.group || '未分组');
+  const hosts = state.hosts.filter((host) =>
+    [host.name, host.hostname, host.user].some((value) => value?.toLowerCase().includes(query))
+  );
   const activeHost = state.sessions.find((session) => session.id === activeId)?.hostId;
   const rows = [];
-  for (const [group, hosts] of groups) {
-    rows.push(node('h3', 'host-group', group));
-    for (const host of hosts) {
-      const row = node('div', 'host-row' + (activeHost === host.id ? ' selected' : ''));
-      const open = node('button', 'host-open');
-      const details = node('span', 'host-copy');
-      const isDemo = host.kind === 'demo';
-      const address = isDemo ? '本机演示终端' : host.user + '@' + host.hostname + ':' + host.port;
-      details.append(node('span', 'host-name', host.name), node('span', 'host-meta', address));
-      open.append(node('span', 'host-icon', '>_'), details);
-      open.onclick = () => connect(host.id);
-      row.append(open);
-      if (!isDemo) {
-        const edit = node('button', 'host-edit', '⋯');
-        edit.setAttribute('aria-label', '编辑 ' + host.name);
-        edit.onclick = () => openForm(host);
-        row.append(edit);
-      }
-      rows.push(row);
+  for (const host of hosts) {
+    const row = node('div', 'host-row' + (activeHost === host.id ? ' selected' : ''));
+    const open = node('button', 'host-open');
+    const details = node('span', 'host-copy');
+    const isDemo = host.kind === 'demo';
+    const address = isDemo ? '本机演示终端' : host.user + '@' + host.hostname + ':' + host.port;
+    details.append(node('span', 'host-name', host.name), node('span', 'host-meta', address));
+    open.append(node('span', 'host-icon', '>_'), details);
+    open.onclick = () => connect(host.id);
+    row.append(open);
+    if (!isDemo) {
+      const edit = node('button', 'host-edit', '⋯');
+      edit.setAttribute('aria-label', '编辑 ' + host.name);
+      edit.onclick = () => openForm(host);
+      row.append(edit);
     }
+    rows.push(row);
   }
   if (!rows.length) rows.push(node('p', 'no-hosts', '没有匹配的主机'));
   hostList.replaceChildren(...rows);
@@ -149,7 +134,7 @@ async function refresh() {
   const next = await request('state');
   if (JSON.stringify(next) === JSON.stringify(state)) return;
   state = next;
-  element('version').textContent = next.version || '0004';
+  element('version').textContent = next.version || '0005';
   if (activeId && !state.sessions.some((session) => session.id === activeId)) {
     activate(state.sessions[0]?.id);
     return;
@@ -176,10 +161,8 @@ function fitTerminal() {
   }
 }
 
-function activate(id, password) {
+function activate(id) {
   if (activeId === id && socket?.readyState === WebSocket.OPEN) {
-    if (password && authKind === 'password') sendSecret(password);
-    else if (password) queuePassword(password);
     terminal.focus();
     return;
   }
@@ -188,7 +171,6 @@ function activate(id, password) {
   terminal?.dispose();
   socket = terminal = fitter = input = undefined;
   clearAuthPrompt();
-  queuePassword(password);
   terminalNode.replaceChildren();
   activeId = id;
   element('empty').hidden = Boolean(id);
@@ -227,14 +209,12 @@ function activate(id, password) {
   };
   connection.onclose = () => {
     if (socket !== connection) return;
-    queuedPassword = undefined;
     clearAuthPrompt();
     renderConnection('终端已断开');
   };
   input = terminal.onData((data) => {
     if (connection.readyState !== WebSocket.OPEN) return;
     if (/[\r\n\x03]/.test(data)) {
-      queuedPassword = undefined;
       clearAuthPrompt();
     }
     connection.send(data);
@@ -242,18 +222,18 @@ function activate(id, password) {
   terminal.focus();
 }
 
-async function connect(hostId, password) {
+async function connect(hostId) {
   if (starting || !hostId) return;
   const existing = state.sessions.find((session) => session.hostId === hostId);
   if (existing && !existing.exited) {
-    activate(existing.id, password);
+    activate(existing.id);
     return;
   }
   starting = true;
   try {
     const session = await request('sessions', 'POST', {hostId});
     await refresh();
-    activate(session.id, password);
+    activate(session.id);
     showNotice();
   } catch (error) { showNotice(error.message); }
   finally { starting = false; }
@@ -269,8 +249,11 @@ function openForm(host) {
   element('key-help').textContent = host?.hasKey
     ? '已导入私钥。选择另一个文件可替换，重新连接时生效。'
     : '支持 OpenSSH 和 PEM 私钥文件。';
+  element('host-password-help').textContent = host?.hasPassword
+    ? '已保存密码。填写新密码可替换，重新连接时生效。'
+    : '填写后保存到 Zero SSH，下次连接自动使用。';
   if (host) {
-    for (const field of ['name', 'hostname', 'port', 'user', 'group']) {
+    for (const field of ['name', 'hostname', 'port', 'user']) {
       form.elements.namedItem(field).value = host[field] ?? '';
     }
   }
@@ -280,11 +263,12 @@ function openForm(host) {
 
 function renderAuthFields() {
   const passwordMode = form.elements.namedItem('authMode').value === 'password';
-  const hasKey = state.hosts.find((host) => host.id === editing)?.hasKey;
+  const host = state.hosts.find((entry) => entry.id === editing);
   element('password-fields').hidden = !passwordMode;
   element('key-fields').hidden = passwordMode;
-  element('remove-key-row').hidden = !passwordMode || !hasKey;
-  element('save-host').textContent = passwordMode && element('host-password').value
+  element('remove-key-row').hidden = !passwordMode || !host?.hasKey;
+  element('remove-password-row').hidden = !passwordMode || !host?.hasPassword || Boolean(element('host-password').value);
+  element('save-host').textContent = !editing && passwordMode && element('host-password').value
     ? '保存并连接' : '保存主机';
 }
 
@@ -300,7 +284,10 @@ form.onsubmit = async (event) => {
   body.port = Number(body.port);
   const password = body.authMode === 'password' ? element('host-password').value : '';
   const key = body.authMode === 'key' ? element('key-file').files[0] : undefined;
+  const connectAfterSave = !editing && Boolean(password);
   try {
+    if (password) body.password = password;
+    else if (body.authMode === 'password' && element('remove-password').checked) body.removePassword = true;
     if (key) {
       if (key.size > 12000) throw new Error('私钥文件须小于 12 KB。');
       body.privateKey = await key.text();
@@ -310,7 +297,7 @@ form.onsubmit = async (event) => {
     const host = await request(editing ? 'hosts/' + encodeURIComponent(editing) : 'hosts', editing ? 'PUT' : 'POST', body);
     dialog.close();
     await refresh();
-    if (password) await connect(host.id, password);
+    if (connectAfterSave) await connect(host.id);
   } catch (error) { element('form-error').textContent = error.message; }
 };
 element('delete-host').onclick = async () => {

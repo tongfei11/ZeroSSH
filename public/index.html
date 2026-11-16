@@ -13,7 +13,7 @@
 <body>
   <header class="top">
     <a class="brand" href="/"><span class="mark">&gt;_</span><span>Zero<span class="accent">SSH</span><small>CARDPUTER ZERO</small></span></a>
-    <span class="build">DEMO <span id="version">0004</span></span>
+    <span class="build">DEMO <span id="version">0005</span></span>
   </header>
   <main>
     <div class="intro"><h1>主机与会话</h1><button id="add" class="primary">＋ 添加主机</button></div>
@@ -43,10 +43,9 @@
   <dialog id="host-dialog">
     <form id="host-form">
       <h2 id="form-title">添加主机</h2>
-      <label>名称<input name="name" maxlength="60" required placeholder="例如 家庭 NAS"></label>
+      <label>名称<input name="name" maxlength="80" placeholder="留空使用主机地址"></label>
       <div class="form-row"><label>主机地址<input name="hostname" maxlength="253" required placeholder="192.168.1.10"></label><label>端口<input type="number" name="port" min="1" max="65535" value="22" required></label></div>
       <label>用户名<input name="user" maxlength="64" required placeholder="例如 admin"></label>
-      <label>分组<input name="group" maxlength="40" placeholder="例如 家里"></label>
       <fieldset class="credentials">
         <legend>SSH 登录方式</legend>
         <div class="credential-options">
@@ -55,8 +54,9 @@
         </div>
         <div id="password-fields">
           <label for="host-password">SSH 登录密码</label>
-          <input id="host-password" type="password" autocomplete="new-password" aria-describedby="host-password-help">
-          <p id="host-password-help">填完即可保存并连接。密码只用于本次登录。</p>
+          <input id="host-password" type="password" maxlength="1023" autocomplete="new-password" aria-describedby="host-password-help">
+          <p id="host-password-help">填写后保存到 Zero SSH，下次连接自动使用。</p>
+          <label class="remove-key" id="remove-password-row" hidden><input id="remove-password" type="checkbox">清除已保存的密码</label>
         </div>
         <div id="key-fields" hidden>
           <label for="key-file">导入私钥文件</label>

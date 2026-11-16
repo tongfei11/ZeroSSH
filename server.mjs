@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { constants, accessSync, chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -8,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { WebSocket, WebSocketServer } from 'ws';
 
-const version = '0004';
+const version = '0005';
 const port = Number(process.env.PORT ?? 4173);
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = resolve(root, 'public');
@@ -34,9 +35,9 @@ if (process.platform === 'darwin') {
 }
 
 const fixtures = [
-  { id: 'demo-edge', name: 'edge-gateway', hostname: '192.168.1.10', port: 22, user: 'admin', group: '本地演示', kind: 'demo' },
-  { id: 'demo-build', name: 'build-node', hostname: '192.168.1.24', port: 22, user: 'deploy', group: '本地演示', kind: 'demo' },
-  { id: 'demo-home', name: 'home-lab', hostname: '192.168.1.35', port: 22, user: 'root', group: '本地演示', kind: 'demo' },
+  { id: 'demo-edge', name: 'edge-gateway', hostname: '192.168.1.10', port: 22, user: 'admin', kind: 'demo' },
+  { id: 'demo-build', name: 'build-node', hostname: '192.168.1.24', port: 22, user: 'deploy', kind: 'demo' },
+  { id: 'demo-home', name: 'home-lab', hostname: '192.168.1.35', port: 22, user: 'root', kind: 'demo' },
 ];
 let hosts;
 try {
@@ -55,8 +56,13 @@ function saveHosts(next) {
   hosts = next;
 }
 
-function publicHost({ keyId, ...host }) {
-  return { ...host, authMode: host.authMode ?? (keyId ? 'key' : 'password'), hasKey: Boolean(keyId) };
+function publicHost({ keyId, password, group, ...host }) {
+  return {
+    ...host,
+    authMode: host.authMode ?? (keyId ? 'key' : 'password'),
+    hasKey: Boolean(keyId),
+    hasPassword: Boolean(password),
+  };
 }
 
 function keyPath(id) {
@@ -71,6 +77,17 @@ function saveHostUpdate(current, fields, body) {
   if (authMode === 'key' && body.privateKey === undefined && (!current?.keyId || body.removeKey)) {
     throw new RequestError(400, '请先导入 SSH 私钥。');
   }
+  const sameDestination = current?.hostname === fields.hostname
+    && current.port === fields.port && current.user === fields.user;
+  let password = authMode === 'password' && sameDestination && !body.removePassword
+    ? current.password : undefined;
+  if (body.password !== undefined) {
+    if (authMode !== 'password' || typeof body.password !== 'string' || !body.password
+      || Buffer.byteLength(body.password, 'utf8') > 1023 || /[\u0000-\u001f\u007f]/.test(body.password)) {
+      throw new RequestError(400, '请输入有效的 SSH 密码。');
+    }
+    password = body.password;
+  }
   let keyId = body.removeKey ? undefined : current?.keyId;
   if (body.privateKey !== undefined) {
     const key = typeof body.privateKey === 'string' && body.privateKey.replace(/\r\n/g, '\n').trim();
@@ -80,7 +97,7 @@ function saveHostUpdate(current, fields, body) {
     mkdirSync(keysDir, { recursive: true, mode: 0o700 });
     writeFileSync(keyPath(keyId), key + '\n', { mode: 0o600, flag: 'wx' });
   }
-  const host = { id: current?.id ?? randomUUID(), ...fields, kind: 'ssh', authMode, keyId };
+  const host = { id: current?.id ?? randomUUID(), ...fields, kind: 'ssh', authMode, keyId, password };
   try {
     saveHosts(current ? hosts.map((entry) => entry.id === host.id ? host : entry) : [...hosts, host]);
   } catch (error) {
@@ -145,18 +162,17 @@ async function readJson(request) {
 }
 
 function hostFields(body) {
-  const name = typeof body.name === 'string' ? body.name.trim() : '';
-  const group = typeof body.group === 'string' ? body.group.trim() : '';
   const hostname = typeof body.hostname === 'string' ? body.hostname.trim().replace(/^\[(.*)\]$/, '$1') : '';
+  const name = (typeof body.name === 'string' && body.name.trim()) || hostname.slice(0, 80);
   const user = typeof body.user === 'string' ? body.user.trim() : '';
   const portInput = ['string', 'number'].includes(typeof body.port) ? String(body.port) : '';
   const sshPort = /^\d{1,5}$/.test(portInput) ? Number(portInput) : NaN;
   const dnsName = /^(?:[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.)*[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?\.?$/i;
-  if (!name || name.length > 80 || group.length > 80 || /[\u0000-\u001f\u007f]/.test(name + group)) {
-    throw new RequestError(400, '请输入有效的主机名称和分组。');
-  }
   if (hostname.length > 253 || (!isIP(hostname) && !dnsName.test(hostname))) {
     throw new RequestError(400, '请输入有效的域名或 IP 地址。');
+  }
+  if (name.length > 80 || /[\u0000-\u001f\u007f]/.test(name)) {
+    throw new RequestError(400, '请输入有效的主机名称。');
   }
   if (!/^[a-z\d_][\w.-]{0,63}$/i.test(user)) {
     throw new RequestError(400, '请输入有效的 SSH 用户名。');
@@ -164,7 +180,7 @@ function hostFields(body) {
   if (sshPort < 1 || sshPort > 65535 || Number.isNaN(sshPort)) {
     throw new RequestError(400, '端口须为 1–65535。');
   }
-  return { name, hostname, port: sshPort, user, group };
+  return { name, hostname, port: sshPort, user };
 }
 
 function writeTerminal(session, data) {
@@ -177,6 +193,24 @@ function writeTerminal(session, data) {
   }
 }
 
+function useSavedPassword(session, data) {
+  if (!session.savedPassword) return;
+  session.promptTail = (session.promptTail + data).split(/[\r\n]/).at(-1).slice(-500);
+  const expected = `${session.user}@${session.hostname}'s password:`;
+  const prompt = session.promptTail.trimEnd();
+  if (prompt !== expected && !/^password:$/i.test(prompt)) return;
+
+  // OpenSSH disables echo before printing a genuine password prompt.
+  const tty = session.terminal.ptsName;
+  if (!tty) return;
+  const flag = process.platform === 'darwin' ? '-f' : '-F';
+  const modes = spawnSync('/bin/stty', [flag, tty, '-a'], { encoding: 'utf8', timeout: 500 });
+  if (modes.status !== 0 || !/(?:^|[\s;])-echo(?=[\s;]|$)/.test(modes.stdout)) return;
+  const password = session.savedPassword;
+  session.savedPassword = undefined;
+  session.terminal.write(password + '\r');
+}
+
 function startSession(host) {
   if (sessions.size >= 20) throw new RequestError(409, '请先关闭一些终端会话。');
   const id = randomUUID();
@@ -185,7 +219,7 @@ function startSession(host) {
   const authMode = publicHost(host).authMode;
   const authArgs = authMode === 'key'
     ? ['-i', keyPath(host.keyId), '-o', 'IdentitiesOnly=yes', '-o', 'PreferredAuthentications=publickey']
-    : ['-o', 'PubkeyAuthentication=no', '-o', 'PreferredAuthentications=keyboard-interactive,password'];
+    : ['-o', 'PubkeyAuthentication=no', '-o', 'PreferredAuthentications=password,keyboard-interactive'];
   const args = isDemo
     ? ['--noprofile', '--norc', '-i']
     : [
@@ -205,12 +239,20 @@ function startSession(host) {
     } : process.env,
   });
   const record = { id, hostId: host.id, name: host.name };
-  const session = { record, terminal, clients: new Set(), buffer: '', exited: false };
+  const session = {
+    record, terminal, clients: new Set(), buffer: '', exited: false,
+    savedPassword: authMode === 'password' ? host.password : undefined,
+    user: host.user, hostname: host.hostname, promptTail: '',
+  };
   sessions.set(id, session);
   if (isDemo) writeTerminal(session, 'CardputerZero · 本地演示 Shell\r\n\r\n');
-  terminal.onData((data) => writeTerminal(session, data));
+  terminal.onData((data) => {
+    useSavedPassword(session, data);
+    writeTerminal(session, data);
+  });
   terminal.onExit(({ exitCode, signal }) => {
     session.exited = true;
+    session.savedPassword = undefined;
     record.exited = true;
     writeTerminal(session, `\r\n[会话已结束 · ${signal ? `信号 ${signal}` : `退出码 ${exitCode}`}]\r\n`);
   });

@@ -22,6 +22,7 @@ KEYBOARD = "/dev/input/by-path/platform-3f804000.i2c-event"
 INPUT_EVENT = struct.Struct("@llHHi")
 EV_KEY = 1
 ESC, BACKSPACE, ENTER, KP_ENTER, DELETE = 1, 14, 28, 96, 111
+ESC_HOLD_SECONDS = 3
 TAB, UP, DOWN = 15, 103, 108
 SHIFT = {42, 54}
 CTRL = {29, 97}
@@ -45,10 +46,11 @@ CARDPUTER_SYMBOLS = {
     92: "/", 93: "?",
 }
 HOST_FIELDS = (
-    ("hostname", "地址", "域名或 IP", 253),
-    ("user", "用户名", "SSH 登录用户名", 64),
-    ("port", "端口", "22", 5),
     ("name", "名称", "留空使用地址", 80),
+    ("hostname", "主机地址", "域名或 IP", 253),
+    ("port", "端口", "22", 5),
+    ("user", "用户名", "SSH 登录用户名", 64),
+    ("password", "密码", "留空可在连接时输入", 1024),
 )
 for base, plain, shifted in (
     (2, "1234567890-=", "!@#$%^&*()_+"),
@@ -165,36 +167,38 @@ class Display:
         draw.text((14, y + 12), "+ 添加主机", font=self.ui, fill=ACCENT, anchor="lm")
         draw.text((9, 139), fitted(self.ui, status, 300), font=self.ui, fill=MUTED, anchor="lm")
         draw.rectangle((0, 149, 319, 169), fill=SURFACE)
-        draw.text((9, 159), "F/X Select  Enter Open  Bksp End  Esc Exit", font=self.ui,
+        draw.text((9, 159), "F/X 选择  Enter 打开  Bksp 结束  长按 Esc 3 秒退出", font=self.ui,
                   fill=INK, anchor="lm")
         return image
 
     def host_form_image(self, fields, focus, status):
         image = Image.new("RGB", SIZE, BACKGROUND)
         draw = ImageDraw.Draw(image)
-        draw.rectangle((0, 0, 319, 26), fill=SURFACE)
-        draw.text((9, 13), "添加主机", font=self.title, fill=INK, anchor="lm")
-        draw.text((311, 14), "密码登录", font=self.ui, fill=ACCENT, anchor="rm")
+        draw.rectangle((0, 0, 319, 22), fill=SURFACE)
+        draw.text((9, 11), "添加主机", font=self.title, fill=INK, anchor="lm")
+        draw.text((311, 11), "Tab/↑↓ 切换   Esc 取消", font=self.ui, fill=MUTED, anchor="rm")
         for row, (key, label, placeholder, _) in enumerate(HOST_FIELDS):
-            y = 29 + row * 22
+            y = 25 + row * 19
             selected = row == focus
-            draw.text((9, y + 10), label, font=self.ui, fill=INK, anchor="lm")
-            draw.rounded_rectangle((69, y, 312, y + 19), radius=4, fill=SURFACE,
+            draw.text((9, y + 8), label, font=self.ui, fill=INK, anchor="lm")
+            draw.rounded_rectangle((69, y, 312, y + 17), radius=4, fill=SURFACE,
                                    outline=ACCENT if selected else SURFACE)
             value = fields[key]
+            if key == "password":
+                value = "•" * len(value)
             if selected and value:
                 while self.ui.getlength(value + "_") > 228:
                     value = value[1:]
                 value += "_"
-            draw.text((76, y + 10), fitted(self.ui, value or placeholder, 228), font=self.ui,
+            draw.text((76, y + 8), fitted(self.ui, value or placeholder, 228), font=self.ui,
                       fill=INK if value else MUTED, anchor="lm")
-        draw.rounded_rectangle((7, 118, 312, 138), radius=4, fill=SURFACE,
+        draw.text((9, 127), "使用 SSH 私钥请使用 Web 访问", font=self.ui, fill=MUTED, anchor="lm")
+        draw.text((9, 142), "电脑 SSH 转发后访问 http://127.0.0.1:4173", font=self.ui,
+                  fill=MUTED, anchor="lm")
+        draw.rounded_rectangle((7, 151, 312, 168), radius=4, fill=SURFACE,
                                outline=ACCENT if focus == len(HOST_FIELDS) else SURFACE)
-        draw.text((160, 128), "保存主机", font=self.ui, fill=ACCENT, anchor="mm")
-        draw.text((9, 145), fitted(self.ui, status, 300), font=self.ui, fill=MUTED, anchor="lm")
-        draw.rectangle((0, 153, 319, 169), fill=SURFACE)
-        draw.text((9, 161), "Tab/↑↓ 切换   Enter 确认   Esc 取消", font=self.ui,
-                  fill=INK, anchor="lm")
+        draw.text((160, 159), fitted(self.ui, status or "Enter 保存主机", 294), font=self.ui,
+                  fill=INK if status else ACCENT, anchor="mm")
         return image
 
     def terminal_image(self, name, screen, status):
@@ -294,6 +298,7 @@ class App:
         self.form_focus = 0
         self.pressed = set()
         self.caps = False
+        self.exit_at = None
 
     def request(self, path, method="GET", data=None):
         payload = json.dumps(data).encode() if data is not None else None
@@ -329,23 +334,15 @@ class App:
         return self.display.list_image(self.hosts, self.active, self.index, self.status)
 
     def handle_key(self, code, value):
+        if code == ESC:
+            return self.handle_escape(value)
         if value == 0:
             self.pressed.discard(code)
             return True
         self.pressed.add(code)
         if code == 58 and value == 1:
             self.caps = not self.caps
-        if code == ESC and value == 1:
-            if self.host_form is not None:
-                self.host_form = None
-                self.status = ""
-                return True
-            if self.terminal is None:
-                return False
-            self.terminal.close()
-            self.terminal = None
-            self.refresh()
-        elif self.terminal:
+        if self.terminal:
             keys = terminal_key(code, self.pressed, self.caps, (1 << 5) in self.terminal.screen.mode)
             if keys and not self.terminal.closed.is_set():
                 self.send_keys(keys)
@@ -353,6 +350,24 @@ class App:
             self.handle_form_key(code, value)
         else:
             self.handle_host_key(code, value)
+        return True
+
+    def handle_escape(self, value):
+        if value == 1 and self.exit_at is None:
+            self.exit_at = time.monotonic() + ESC_HOLD_SECONDS
+        if value != 0 or self.exit_at is None:
+            return True
+        held = time.monotonic() >= self.exit_at
+        self.exit_at = None
+        if held:
+            return False
+        if self.host_form is not None:
+            self.host_form = None
+            self.status = ""
+        elif self.terminal:
+            self.terminal.close()
+            self.terminal = None
+            self.refresh()
         return True
 
     def send_keys(self, keys):
@@ -421,7 +436,7 @@ class App:
         self.status = ""
 
     def save_host(self):
-        fields = {key: value.strip() for key, value in self.host_form.items()}
+        fields = {key: value.strip() for key, value in self.host_form.items() if key != "password"}
         for key, message in (("hostname", "请输入主机地址"), ("user", "请输入 SSH 用户名")):
             if not fields[key]:
                 self.form_focus = next(i for i, field in enumerate(HOST_FIELDS) if field[0] == key)
@@ -433,6 +448,8 @@ class App:
             self.form_focus = 2
             self.status = "端口须为 1–65535"
             return
+        if self.host_form["password"]:
+            fields["password"] = self.host_form["password"]
         try:
             host = self.request("/api/hosts", "POST", {**fields, "authMode": "password"})
         except OSError as error:
@@ -470,8 +487,10 @@ def run(args):
         dirty = True
         try:
             while True:
+                if app.exit_at is not None and time.monotonic() >= app.exit_at:
+                    return
                 dirty |= app.drain_terminal()
-                if not app.terminal and app.host_form is None and time.monotonic() >= refresh_at:
+                if app.exit_at is None and not app.terminal and app.host_form is None and time.monotonic() >= refresh_at:
                     previous = (app.hosts, app.active, app.index, app.status)
                     app.refresh()
                     dirty |= previous != (app.hosts, app.active, app.index, app.status)
@@ -480,7 +499,10 @@ def run(args):
                     framebuffer.seek(0)
                     framebuffer.write(rgb565(app.draw()))
                     dirty = False
-                if not poll.select(0.04 if app.terminal else 0.20):
+                timeout = 0.04 if app.terminal else 0.20
+                if app.exit_at is not None:
+                    timeout = min(timeout, max(0, app.exit_at - time.monotonic()))
+                if not poll.select(timeout):
                     continue
                 packets = keyboard.read(INPUT_EVENT.size * 32)
                 if not packets:
@@ -493,7 +515,7 @@ def run(args):
                         return
                     if editing and app.host_form is None:
                         refresh_at = time.monotonic() + 3
-                    dirty |= value != 0
+                    dirty |= value != 0 or code == ESC
         finally:
             if app.terminal:
                 app.terminal.close()
