@@ -7,6 +7,7 @@ import os
 import queue
 import tempfile
 import selectors
+import signal
 import struct
 import sys
 import threading
@@ -211,9 +212,9 @@ class Display:
         draw = ImageDraw.Draw(image)
         draw.rectangle((0, 0, 319, 27), fill=SURFACE)
         draw.text((9, 14), "Zero SSH", font=self.title, fill=INK, anchor="lm")
-        draw.text((311, 15), tr(f"{len(active)} 个会话", f"{len(active)} sessions"), font=self.ui, fill=ACCENT, anchor="rm")
-        first = min(max(0, min(index, len(hosts) - 1) - 1), max(0, len(hosts) - 2))
-        for row, host in enumerate(hosts[first:first + 2], start=first):
+        draw.text((311, 15), tr("设置 (S)", "Settings (S)"), font=self.ui, fill=ACCENT, anchor="rm")
+        first = min(max(0, min(index, len(hosts) - 1) - 1), max(0, len(hosts) - 3))
+        for row, host in enumerate(hosts[first:first + 3], start=first):
             y = 55 + (row - first) * 25
             selected = row == index
             draw.rounded_rectangle(
@@ -236,14 +237,11 @@ class Display:
         draw.rounded_rectangle((7, y, 312, y + 23), radius=5, fill=SURFACE,
                                outline=ACCENT if index == len(hosts) else SURFACE)
         draw.text((14, y + 12), tr("+ 添加主机", "+ Add host"), font=self.ui, fill=ACCENT, anchor="lm")
-        draw.rounded_rectangle((7, 105, 312, 128), radius=5, fill=SURFACE,
-                               outline=ACCENT if index == len(hosts) + 1 else SURFACE)
-        draw.text((14, 117), tr("设置", "Settings"), font=self.ui, fill=ACCENT, anchor="lm")
         draw.text((9, 139), fitted(self.ui, status, 300), font=self.ui, fill=MUTED, anchor="lm")
         draw.rectangle((0, 149, 319, 169), fill=SURFACE)
         for x, label in ((9, tr("Tab 切换", "Tab Switch")),
                          (100, tr("E 编辑", "E Edit")),
-                         (169, tr("退格断开", "Backspace Disconnect"))):
+                         (169, tr("D 断开", "D Disconnect"))):
             draw.text((x, 159), label, font=self.ui, fill=INK, anchor="lm")
         return image
 
@@ -423,6 +421,7 @@ class App:
         self.pressed = set()
         self.caps = False
         self.exit_at = None
+        self.escape_pressed = False
         self.toast_until = 0
 
     def request(self, path, method="GET", data=None):
@@ -454,12 +453,16 @@ class App:
 
     def draw(self):
         image = self.draw_page()
-        if time.monotonic() < self.toast_until:
+        if self.on_host_list() and time.monotonic() < self.toast_until:
             draw = ImageDraw.Draw(image)
-            draw.rounded_rectangle((4, 143, 315, 168), radius=5, fill=SURFACE, outline=ACCENT)
-            draw.text((160, 156), tr("长按 Esc 3 秒退出", "Hold Esc for 3s to exit"),
+            draw.rounded_rectangle((20, 64, 299, 106), radius=7, fill=SURFACE, outline=ACCENT)
+            draw.text((160, 85), tr("长按 Esc 3 秒退出", "Hold Esc for 3s to exit"),
                       font=self.display.ui, fill=INK, anchor="mm")
         return image
+
+    def on_host_list(self):
+        return (self.host_action is None and self.settings_focus is None
+                and self.host_form is None and self.terminal is None)
 
     def draw_page(self):
         if self.host_action is not None:
@@ -524,15 +527,22 @@ class App:
         return True
 
     def handle_escape(self, value):
-        if value == 1 and self.exit_at is None:
-            self.exit_at = time.monotonic() + ESC_HOLD_SECONDS
-        if value != 0 or self.exit_at is None:
+        if value == 1 and not self.escape_pressed:
+            self.escape_pressed = True
+            if self.on_host_list():
+                self.exit_at = time.monotonic() + ESC_HOLD_SECONDS
+                self.toast_until = self.exit_at
             return True
+        if value != 0 or not self.escape_pressed:
+            return True
+        self.escape_pressed = False
         released_at = time.monotonic()
-        held = released_at >= self.exit_at
+        from_list = self.exit_at is not None
+        held = from_list and released_at >= self.exit_at
         self.exit_at = None
         if held:
             return False
+        self.toast_until = released_at + 2 if from_list else 0
         if self.host_action is not None:
             if self.delete_confirm:
                 self.delete_confirm = False
@@ -553,7 +563,6 @@ class App:
             self.terminal.close()
             self.terminal = None
             self.refresh()
-        self.toast_until = released_at + 2
         return True
 
     def send_keys(self, keys):
@@ -567,15 +576,14 @@ class App:
 
     def handle_host_key(self, code, value):
         if code in (*LIST_MOVES, TAB):
-            order = [len(self.hosts), *range(len(self.hosts)), len(self.hosts) + 1]
+            order = [len(self.hosts), *range(len(self.hosts))]
             self.index = order[(order.index(self.index) + LIST_MOVES.get(code, 1)) % len(order)]
             return
         if value != 1:
             return
-        if self.index == len(self.hosts) + 1:
-            if code in (ENTER, KP_ENTER):
-                self.settings_focus = 0
-                self.status = ""
+        if code == 31:
+            self.settings_focus = 0
+            self.status = ""
             return
         if self.index == len(self.hosts):
             if code in (ENTER, KP_ENTER):
@@ -602,7 +610,7 @@ class App:
             self.delete_confirm = False
             self.status = ""
             self.handle_action_key(ENTER, 1)
-        elif code in (BACKSPACE, DELETE) and host["id"] in self.active:
+        elif code == 32 and host["id"] in self.active:
             try:
                 self.request("/api/sessions/" + self.active[host["id"]]["id"], "DELETE")
                 self.refresh()
@@ -728,8 +736,25 @@ class App:
                     self.terminal.stream.feed(data)
         return changed
 
+    def disconnect_all(self):
+        try:
+            sessions = self.request("/api/state")["sessions"]
+        except OSError as error:
+            print(f"Zero SSH cleanup: {error}", file=sys.stderr)
+            return
+        for session in sessions:
+            try:
+                self.request("/api/sessions/" + session["id"], "DELETE")
+            except OSError as error:
+                print(f"Zero SSH cleanup: {error}", file=sys.stderr)
+
 
 def run(args):
+    def stop(signum, frame):
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
     app = App(f"http://127.0.0.1:{args.port}", Display(), Settings(args.settings_path))
     app.refresh()
     refresh_at = time.monotonic() + 3
@@ -774,6 +799,7 @@ def run(args):
         finally:
             if app.terminal:
                 app.terminal.close()
+            app.disconnect_all()
 
 
 def main():

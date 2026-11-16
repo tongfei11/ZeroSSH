@@ -31,6 +31,7 @@ class FormTests(unittest.TestCase):
     def test_hold_esc_exits(self):
         app = ui.App("", None)
         app.exit_at = 0
+        app.escape_pressed = True
         self.assertFalse(app.handle_escape(0))
 
 

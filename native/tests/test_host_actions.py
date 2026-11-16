@@ -29,12 +29,14 @@ class HostActionsTests(unittest.TestCase):
 
             app.request = request
             app.handle_host_key(ui.TAB, 1)
-            self.assertEqual(app.index, 2)
+            self.assertEqual(app.index, 1)
+            app.handle_host_key(ui.TAB, 1)
+            self.assertEqual(app.index, 0)
             app.handle_host_key(ui.TAB, 1)
             self.assertEqual(app.index, 1)
             app.handle_host_key(ui.TAB, 1)
             self.assertEqual(app.index, 0)
-            app.handle_host_key(ui.BACKSPACE, 1)
+            app.handle_host_key(32, 1)
             self.assertIn(("/api/sessions/session", "DELETE", None), calls)
             app.handle_host_key(18, 1)
             self.assertEqual(app.host_form["name"], "NAS")

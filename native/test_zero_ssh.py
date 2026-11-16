@@ -55,12 +55,13 @@ class ZeroKeyboardTest(unittest.TestCase):
     def test_short_escape_cancels_and_long_escape_exits(self):
         app = NATIVE["App"]("http://127.0.0.1:4173", None)
         esc = NATIVE["ESC"]
-        with patch("time.monotonic", side_effect=[10, 11, 20, 23]):
+        with patch("time.monotonic", side_effect=[11, 20, 23]):
             app.handle_key(NATIVE["ENTER"], 1)
             self.assertTrue(app.handle_key(esc, 1))
             self.assertIsNotNone(app.host_form)
             self.assertTrue(app.handle_key(esc, 0))
             self.assertIsNone(app.host_form)
+            self.assertEqual(app.toast_until, 0)
             self.assertTrue(app.handle_key(esc, 1))
             self.assertEqual(app.exit_at, 23)
             self.assertTrue(app.handle_key(esc, 2))
