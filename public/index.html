@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zero SSH · 主机与会话</title>
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/vendor/xterm.js" defer></script>
+  <script src="/vendor/xterm-fit.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/"><span class="mark">&gt;_</span><span>Zero<span class="accent">SSH</span><small>CARDPUTER ZERO</small></span></a>
+    <span class="build">DEMO <span id="version">0001</span></span>
+  </header>
+  <main>
+    <div class="intro"><h1>主机与会话</h1><button id="add" class="primary">＋ 添加主机</button></div>
+    <div class="workspace">
+      <aside class="hosts" aria-labelledby="hosts-heading">
+        <div class="pane-heading"><h2 id="hosts-heading">主机</h2><span class="count" id="host-count">0</span></div>
+        <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索主机或地址" aria-label="搜索主机或地址"></label>
+        <div id="host-list"></div>
+      </aside>
+      <section class="console" aria-labelledby="console-heading">
+        <div class="pane-heading"><h2 id="console-heading">终端会话</h2><span id="connection" class="connection">未连接</span></div>
+        <div id="tabs" class="tabs" aria-label="会话"></div>
+        <div class="terminal-wrap">
+          <div id="terminal"></div>
+          <div id="empty"><div class="mark large">&gt;_</div><h3>打开一个会话</h3><p>从左侧选择主机。切换会话时，后台继续运行。</p><button id="try-demo" class="primary">打开演示终端</button></div>
+        </div>
+        <div class="console-foot"><span id="session-type">SSH</span><span id="session-total">0 个会话</span></div>
+      </section>
+    </div>
+    <p id="notice" role="status"></p>
+  </main>
+  <dialog id="host-dialog">
+    <form id="host-form">
+      <h2 id="form-title">添加主机</h2>
+      <label>名称<input name="name" maxlength="60" required placeholder="例如 家庭 NAS"></label>
+      <div class="form-row"><label>主机地址<input name="hostname" maxlength="253" required placeholder="192.168.1.10"></label><label>端口<input type="number" name="port" min="1" max="65535" value="22" required></label></div>
+      <label>用户名<input name="user" maxlength="64" required placeholder="例如 admin"></label>
+      <label>分组<input name="group" maxlength="40" placeholder="例如 家里"></label>
+      <fieldset class="credentials">
+        <legend>SSH 私钥</legend>
+        <label for="key-file">导入私钥文件（可选）</label>
+        <input id="key-file" type="file" aria-describedby="key-help">
+        <p id="key-help">支持 OpenSSH 和 PEM。连接时可在终端输入私钥口令或登录密码。</p>
+        <label class="remove-key" id="remove-key-row" hidden><input id="remove-key" type="checkbox">移除已导入的私钥</label>
+      </fieldset>
+      <p id="form-error" role="alert"></p>
+      <div class="form-actions"><button type="button" id="delete-host" class="danger">删除主机</button><div><button type="button" id="cancel">取消</button><button type="submit" class="primary">保存主机</button></div></div>
+    </form>
+  </dialog>
+</body>
+</html>
