@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { WebSocket, WebSocketServer } from 'ws';
 
-const version = '0009';
-const accessCode = String(randomInt(10000000, 100000000));
+const version = '0010';
+const accessCode = String(randomInt(100000, 1000000));
 const webSessions = new Set();
 const loginAttempts = new Map();
 
