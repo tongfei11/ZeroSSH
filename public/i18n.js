@@ -1,7 +1,7 @@
 (() => {
   'use strict';
-  if ((navigator.language || 'en').toLowerCase().startsWith('zh')) return;
-  document.documentElement.lang = 'en';
+  let language = (navigator.language || 'en').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  document.documentElement.lang = language;
   const dictionary = {
     'Zero SSH · 主机与会话': 'Zero SSH · Hosts & Sessions',
     '设备访问码 / Device access code': 'Device access code', '登录 / Sign in': 'Sign in',
@@ -23,11 +23,17 @@
     '私钥文件须小于 12 KB。': 'Private key file must be smaller than 12 KB.',
     '删除这台主机并关闭相关会话？': 'Delete this host and close its sessions?'
   };
+  const reverse = Object.fromEntries(Object.entries(dictionary).map(([zh, en]) => [en, zh]));
   function translate(value) {
     const trimmed = value.trim();
-    let translated = dictionary[trimmed];
-    if (!translated && /^\d+ 个会话$/.test(trimmed)) translated = trimmed.replace(/ 个会话$/, ' sessions');
-    if (!translated && /^(编辑|关闭) /.test(trimmed)) translated = trimmed.replace(/^编辑 /, 'Edit ').replace(/^关闭 /, 'Close ');
+    let translated = (language === 'zh' ? reverse : dictionary)[trimmed];
+    if (language === 'en') {
+      if (!translated && /^\d+ 个会话$/.test(trimmed)) translated = trimmed.replace(/ 个会话$/, ' sessions');
+      if (!translated && /^(编辑|关闭) /.test(trimmed)) translated = trimmed.replace(/^编辑 /, 'Edit ').replace(/^关闭 /, 'Close ');
+    } else {
+      if (!translated && /^\d+ sessions$/.test(trimmed)) translated = trimmed.replace(/ sessions$/, ' 个会话');
+      if (!translated && /^(Edit|Close) /.test(trimmed)) translated = trimmed.replace(/^Edit /, '编辑 ').replace(/^Close /, '关闭 ');
+    }
     return translated ? value.replace(trimmed, translated) : value;
   }
   function scan(root) {
@@ -57,6 +63,13 @@
   const originalConfirm = window.confirm.bind(window);
   window.confirm = message => originalConfirm(translate(String(message)));
   scan(document);
+  window.setZeroLanguage = (next) => {
+    if (!['zh', 'en'].includes(next)) return;
+    language = next;
+    document.documentElement.lang = language;
+    scan(document);
+  };
+  fetch('/api/language').then(response => response.json()).then(data => window.setZeroLanguage(data.language)).catch(() => {});
   new MutationObserver(records => {
     for (const record of records) {
       if (record.type === 'childList') for (const added of record.addedNodes) scan(added);

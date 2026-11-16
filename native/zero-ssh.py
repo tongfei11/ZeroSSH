@@ -9,6 +9,7 @@ import tempfile
 import selectors
 import signal
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -753,6 +754,16 @@ class App:
 
 
 def run(args):
+    try:
+        subprocess.run(["systemctl", "--user", "start", "zero-ssh.socket", "zero-ssh.service"],
+                       check=True, timeout=15)
+        run_ui(args)
+    finally:
+        subprocess.run(["systemctl", "--user", "stop", "zero-ssh.socket", "zero-ssh.service"],
+                       check=True, timeout=15)
+
+
+def run_ui(args):
     def stop(signum, frame):
         raise SystemExit(128 + signum)
 

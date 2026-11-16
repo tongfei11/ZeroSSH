@@ -10,3 +10,4 @@ Environment=ZERO_SSH_MODE=device
 Environment=CARDPUTER_DATA_DIR=%h/.local/state/zero-ssh
 ExecStart=/usr/bin/node %h/.local/share/zero-ssh/server.mjs
 UMask=0077
+TimeoutStopSec=3

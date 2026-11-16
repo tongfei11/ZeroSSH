@@ -46,9 +46,5 @@ sudo install -m 0644 "$icon" /usr/local/lib/zero-ssh/zero-ssh.png
 sudo install -m 0644 native/zero-ssh.desktop /usr/share/APPLaunch/applications/
 systemctl --user daemon-reload
 systemctl --user stop zero-ssh.service zero-ssh.socket
-systemctl --user enable --now zero-ssh.socket
-if systemctl --user is-active --quiet zero-ssh.service; then
-  systemctl --user restart zero-ssh.service
-fi
-curl -fsS --max-time 12 http://127.0.0.1:4173/api/state
+systemctl --user disable zero-ssh.socket
 printf '\n%s\n' '已安装 Zero SSH。请在 APPLaunch 中打开。'

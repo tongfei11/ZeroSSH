@@ -1,5 +1,6 @@
 import { randomUUID, randomInt, randomBytes } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
+import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { constants, accessSync, chmodSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -10,10 +11,19 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { WebSocket, WebSocketServer } from 'ws';
 
-const version = '0011';
+const version = '0012';
 const accessCode = String(randomInt(100000, 1000000));
 const webSessions = new Set();
 const loginAttempts = new Map();
+
+function clientLanguage() {
+  let language;
+  try {
+    language = JSON.parse(readFileSync(resolve(homedir(), '.config/zero-ssh/settings.json'), 'utf8')).language;
+  } catch {}
+  if (language === 'zh' || language === 'en') return language;
+  return (process.env.LC_ALL || process.env.LC_MESSAGES || process.env.LANG || '').startsWith('zh') ? 'zh' : 'en';
+}
 
 function lanAddresses() {
   return Object.values(networkInterfaces()).flat().filter((item) => item && !item.internal
@@ -289,6 +299,9 @@ function closeSession(id) {
 
 async function handleApi(request, response, path) {
   const { method } = request;
+  if (path === '/api/language' && method === 'GET') {
+    return sendJson(response, 200, { language: clientLanguage() });
+  }
   if (path === '/api/access' && method === 'GET') {
     if (!localClient(request)) throw new RequestError(403, 'Access is available on the device screen.');
     const address = lanAddresses()[0];
@@ -310,7 +323,7 @@ async function handleApi(request, response, path) {
   }
   if (path === '/api/state' && method === 'GET') {
     return sendJson(response, 200, {
-      hosts: hosts.map(publicHost), sessions: Array.from(sessions.values(), (session) => session.record), version,
+      hosts: hosts.map(publicHost), sessions: Array.from(sessions.values(), (session) => session.record), version, language: clientLanguage(),
     });
   }
   if (path === '/api/hosts' && method === 'POST') {
@@ -368,7 +381,7 @@ const server = createServer(async (request, response) => {
       throw new RequestError(403, '仅允许同源本地访问。');
     }
     const { pathname } = new URL(request.url, `http://${host}`);
-    if (pathname.startsWith('/api/') && !['/api/login', '/api/access'].includes(pathname) && !authenticated(request)) {
+    if (pathname.startsWith('/api/') && !['/api/login', '/api/access', '/api/language'].includes(pathname) && !authenticated(request)) {
       throw new RequestError(401, 'Enter the access code shown on your Zero.');
     }
     if (pathname.startsWith('/api/')) return await handleApi(request, response, pathname);
@@ -443,6 +456,7 @@ function shutdown() {
   for (const id of sessions.keys()) closeSession(id);
   for (const socket of sockets.clients) socket.terminate();
   server.close();
+  server.closeAllConnections();
 }
 process.once('SIGINT', shutdown);
 process.once('SIGTERM', shutdown);

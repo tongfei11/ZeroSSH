@@ -105,7 +105,6 @@ function renderHosts() {
   if (!rows.length) rows.push(node('p', 'no-hosts', '没有匹配的主机'));
   hostList.replaceChildren(...rows);
   element('host-count').textContent = state.hosts.length;
-  element('try-demo').disabled = !state.hosts.some((host) => host.kind === 'demo');
 }
 
 function renderTabs() {
@@ -135,6 +134,7 @@ function renderTabs() {
 
 async function refresh() {
   const next = await request('state');
+  window.setZeroLanguage?.(next.language);
   if (JSON.stringify(next) === JSON.stringify(state)) return;
   state = next;
   if (activeId && !state.sessions.some((session) => session.id === activeId)) {
@@ -324,7 +324,6 @@ element('access-form').onsubmit = async (event) => {
 };
 element('add').onclick = () => openForm();
 element('search').oninput = renderHosts;
-element('try-demo').onclick = () => connect(state.hosts.find((host) => host.kind === 'demo')?.id);
 new ResizeObserver(fitTerminal).observe(terminalNode);
 refresh().catch((error) => showNotice(error.message));
 setInterval(() => refresh().catch((error) => showNotice(error.message)), 1500);

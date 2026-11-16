@@ -1,6 +1,6 @@
 # Zero SSH
 
-版本 v0.1.0，构建 0011。CardputerZero 和 Web 管理端都可以添加 SSH 主机，并切换独立的交互式会话。私钥从 Web 管理端导入。
+版本 v0.1.0，构建 0012。CardputerZero 和 Web 管理端都可以添加 SSH 主机，并切换独立的交互式会话。私钥从 Web 管理端导入。
 
 ## 运行
 
@@ -21,9 +21,9 @@ CardputerZero 版允许同一局域网直接访问。打开设备上的 Zero SSH
 
 将源码目录复制到 Zero，用运行 APPLaunch 的用户执行 `bash native/install.sh`。安装完成后在 APPLaunch 里打开 **Zero SSH**。在主机列表选择「添加主机」，第一页填写名称、主机地址和端口，第二页填写用户名和密码。短按 Esc 可返回上一页，输入会保留。输入 IP 地址时用 `Sym+B` 输入 `.`。
 
-`F/X` 选主机，回车打开或切回会话，短按 `Esc` 返回或取消，长按 3 秒退出，D 断开选中的会话。设备上的应用打开时，可同时在同一局域网的电脑上访问 Web 管理和导入私钥。主机、凭据和会话由 Zero 上的同一个服务管理。数据目录为 `~/.local/state/zero-ssh/`。服务由用户级 systemd socket 在首次访问时启动。
+`F/X` 选主机，回车打开或切回会话，短按 `Esc` 返回或取消，长按 3 秒退出，D 断开选中的会话。设备上的应用打开时，可同时在同一局域网的电脑上访问 Web 管理和导入私钥。主机、凭据和会话由 Zero 上的同一个服务管理。数据目录为 `~/.local/state/zero-ssh/`。设备应用打开时启动 Web 服务，退出时关闭服务和监听端口。
 
-设备界面按系统 LC_ALL、LC_MESSAGES 或 LANG 切换中英文。Web 管理按浏览器语言显示。
+设备界面按系统 LC_ALL、LC_MESSAGES 或 LANG 切换中英文。Web 管理跟随客户端保存的语言设置，切换后自动更新。
 
 首页「设置」可选择跟随系统、中文或 English，并选择终端主题。偏好保存在运行应用用户的 `~/.config/zero-ssh/settings.json`，重开应用后继续使用。终端主题调整默认文字、背景及 ANSI 调色板。
 
