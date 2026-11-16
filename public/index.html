@@ -14,7 +14,7 @@
 <body>
   <header class="top">
     <a class="brand" href="/"><span class="mark">&gt;_</span><span>Zero<span class="accent">SSH</span><small>CARDPUTER ZERO</small></span></a>
-    <span class="build">DEMO <span id="version">0010</span></span>
+    <span class="release-version">v0.1.0</span>
   </header>
   <main>
     <dialog id="access-dialog">
@@ -25,10 +25,9 @@
         <button class="primary" type="submit">登录 / Sign in</button>
       </form>
     </dialog>
-    <div class="intro"><h1>主机与会话</h1><button id="add" class="primary">＋ 添加主机</button></div>
     <div class="workspace">
       <aside class="hosts" aria-labelledby="hosts-heading">
-        <div class="pane-heading"><h2 id="hosts-heading">主机</h2><span class="count" id="host-count">0</span></div>
+        <div class="pane-heading host-heading"><h2 id="hosts-heading">主机</h2><button id="add" class="primary">＋ 添加主机</button><span class="count" id="host-count">0</span></div>
         <label class="search"><span aria-hidden="true">⌕</span><input id="search" type="search" placeholder="搜索主机或地址" aria-label="搜索主机或地址"></label>
         <div id="host-list"></div>
       </aside>

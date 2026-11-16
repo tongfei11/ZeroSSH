@@ -96,10 +96,9 @@ a {
   color:var(--accent)
 }
 
-.build {
-  margin-left:auto;
+.release-version {
   border:1px solid var(--line);
-  padding:7px 9px;
+  padding:4px 7px;
   border-radius:6px;
   color:var(--muted);
   font:11px var(--mono);
@@ -109,15 +108,7 @@ a {
 main {
   max-width:1316px;
   margin:auto;
-  padding:43px 28px 20px
-}
-
-.intro {
-  display:flex;
-  justify-content:space-between;
-  align-items:end;
-  gap:12px;
-  margin-bottom:24px
+  padding:18px 28px 20px
 }
 
 h1,h2,h3,p {
@@ -152,7 +143,20 @@ h3 {
   display:grid;
   grid-template-columns:290px minmax(0,1fr);
   gap:14px;
-  min-height:560px
+  min-height:max(560px,calc(100dvh - 110px))
+}
+
+.host-heading {
+  gap:8px;
+}
+
+.host-heading #add {
+  padding:5px 8px;
+  font-size:12px;
+}
+
+.host-heading .count {
+  margin-left:auto;
 }
 
 .hosts,.console {
@@ -457,11 +461,8 @@ dialog .form-row {
     padding:0 14px;
     gap:10px
   }
-  .build {
-    display:none
-  }
   main {
-    padding:25px 13px
+    padding:14px 13px
   }
   .workspace {
     grid-template-columns:1fr
@@ -472,9 +473,6 @@ dialog .form-row {
   }
   .console {
     min-height:440px
-  }
-  .intro {
-    margin-bottom:16px
   }
 }
 
