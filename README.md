@@ -1,47 +1,49 @@
 <h1><img src="assets/zero-ssh.png" alt="" width="48" height="48" valign="middle"> Zero SSH</h1>
 
-Zero SSH 是为 **M5Stack Cardputer Zero** 设计的 SSH 客户端。你可以用设备键盘管理多台主机、连接远程终端，并在已有会话之间切换。也可以从同一局域网内的浏览器管理主机、导入私钥和使用终端。
+**English** · [简体中文](README.zh-CN.md)
 
-## 安装
+Zero SSH is an SSH client for the **M5Stack Cardputer Zero**. Use the device keyboard to manage multiple hosts, open remote terminals, and switch between active sessions. The web interface lets you manage hosts, import private keys, and use the terminal from a browser on the same local network.
 
-将 ARM64 的 Zero SSH 安装包复制到 Cardputer Zero。在设备上打开 CLI，进入安装包所在目录。以下命令以 `zero-ssh.deb` 为例，安装时请使用实际文件名。
+## Installation
+
+Copy the ARM64 Zero SSH Debian package to your Cardputer Zero. Open the CLI on the device, change to the directory containing the package, and run the command below with the actual filename.
 
 ```sh
 sudo apt install ./zero-ssh.deb
 ```
 
-安装完成后，在应用启动器中打开 **Zero SSH**。从源码安装时，在设备上以运行应用启动器的普通用户执行 `bash native/install.sh`。
+After installation, open **Zero SSH** from the app launcher. To install from source, run `bash native/install.sh` on the device as the user who runs the app launcher.
 
-## 在设备上使用
+## Using Zero SSH on the device
 
-在主机列表顶部选择 **添加主机**。第一页填写名称、地址和端口，第二页填写用户名和密码。输入 IP 地址时，按 `Sym+B` 输入句点。密码可以留空，连接时再输入。
+Select **Add host** at the top of the host list. Enter a name, address, and port on the first page, then the username and password on the second page. Press `Sym+B` to type a period in an IP address. Leave the password blank to enter it when you connect.
 
-| 按键 | 操作 |
+| Key | Action |
 | --- | --- |
-| `Tab` 或 `F` / `X` | 在主机列表中移动 |
-| `Enter` | 连接选中的主机，或切回已有会话 |
-| `E` | 编辑选中的主机 |
-| `D` | 断开选中主机的会话 |
-| `S` | 从主机列表打开设置 |
-| 短按 `Esc` | 从终端或设置返回列表 |
-| 在主机列表长按 `Esc` 3 秒 | 退出应用 |
+| `Tab` or `F` / `X` | Move through the host list |
+| `Enter` | Connect to the selected host or resume its session |
+| `E` | Edit the selected host |
+| `D` | Disconnect the selected host |
+| `S` | Open settings from the host list |
+| Press `Esc` | Return to the host list from the terminal or settings |
+| Hold `Esc` for 3 seconds on the host list | Exit the app |
 
-退出终端界面后，会话仍可从列表切回。要删除主机，请进入编辑页，在第二页选择删除并确认。
+When you leave the terminal view, you can resume the session from the host list. To delete a host, open its edit form, select the delete option on the second page, and confirm.
 
-## 从局域网浏览器管理
+## Managing hosts from a browser
 
-1. 在 Cardputer Zero 上打开 Zero SSH，进入添加或编辑主机的第二页。
-2. 在同一局域网内的浏览器打开设备屏幕上显示的 Web 地址，输入六位访问码。
-3. 在网页中添加、编辑主机或打开终端。使用密钥认证时，选择 **私钥** 并导入 OpenSSH 或 PEM 私钥文件。
+1. Open Zero SSH on your Cardputer Zero and go to the second page of the add or edit host form.
+2. In a browser on the same local network, open the web address shown on the device and enter the six-digit access code.
+3. Add or edit hosts, or open a terminal. For key-based authentication, select **Private key** and import an OpenSSH or PEM private key file.
 
-设备和网页共享主机列表与会话。访问码在 Web 服务重启后更新。
+The device and the web interface share the same hosts and sessions. The access code changes when the web service restarts.
 
-## 设置
+## Settings
 
-- **语言**支持跟随系统、中文和 English。网页跟随设备端保存的语言。
-- **终端主题**可切换 Dracula、Nord、Solarized Dark、Gruvbox Dark 等配色。
-- **退出保留服务**默认关闭。退出应用时，SSH 会话和 Web 服务随之关闭。开启后，可以退出设备界面并继续从浏览器访问。
+- **Language** supports the system default, Simplified Chinese, and English. The web interface follows the language saved on the device.
+- **Terminal theme** includes Dracula, Nord, Solarized Dark, and Gruvbox Dark.
+- **Keep services on exit** is off by default. Exiting the app closes the SSH sessions and stops the web service. Enable this option to leave the device interface while keeping browser access and SSH sessions active.
 
-## 许可证
+## License
 
 [MIT](LICENSE)
