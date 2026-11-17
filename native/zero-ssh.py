@@ -315,7 +315,7 @@ class Display:
         image = Image.new("RGB", SIZE, BACKGROUND)
         draw = ImageDraw.Draw(image)
         draw.text((9, 12), tr("设置", "Settings"), font=self.title, fill=INK)
-        draw.text((311, 22), "v0.1.0", font=self.ui, fill=MUTED, anchor="rm")
+        draw.text((311, 22), "v0.1.1", font=self.ui, fill=MUTED, anchor="rm")
         labels = [(tr("语言", "Language"), {"system": "System", "zh": "中文", "en": "English"}[settings.language]),
                   (tr("终端主题", "Terminal theme"), settings.theme),
                   (tr("退出保留服务", "Keep services on exit"), tr("开", "On") if settings.keep_services else tr("关", "Off"))]
