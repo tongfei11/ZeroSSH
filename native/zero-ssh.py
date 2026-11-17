@@ -29,14 +29,17 @@ EV_KEY = 1
 ESC, BACKSPACE, ENTER, KP_ENTER, DELETE = 1, 14, 28, 96, 111
 ESC_HOLD_SECONDS = 3
 TAB, UP, DOWN = 15, 103, 108
+HOME, END, PAGE_UP, PAGE_DOWN = 102, 107, 104, 109
 SHIFT = {42, 54}
 CTRL = {29, 97}
 ALT = {56, 100}
 LIST_MOVES = {33: -1, 103: -1, 45: 1, 108: 1}  # F/X, Up/Down
 ARROWS = {103: "A", 108: "B", 106: "C", 105: "D"}
+CURSOR_KEYS = {**ARROWS, HOME: "H", END: "F"}
+ALT_SCREEN_MODES = {47 << 5, 1047 << 5, 1049 << 5}
 TERMINAL_KEYS = {
     BACKSPACE: "\x7f", ENTER: "\r", KP_ENTER: "\r", 15: "\t",
-    102: "\x1b[H", 107: "\x1b[F", 104: "\x1b[5~", 109: "\x1b[6~",
+    PAGE_UP: "\x1b[5~", PAGE_DOWN: "\x1b[6~",
     110: "\x1b[2~", DELETE: "\x1b[3~",
 }
 PRINTABLE = {57: (" ", " ")}
@@ -183,8 +186,8 @@ def rgb565(image):
 def terminal_key(code, pressed, caps, application_cursor=False):
     if code in CARDPUTER_SYMBOLS:
         value = CARDPUTER_SYMBOLS[code]
-    elif code in ARROWS:
-        value = ("\x1bO" if application_cursor else "\x1b[") + ARROWS[code]
+    elif code in CURSOR_KEYS:
+        value = ("\x1bO" if application_cursor else "\x1b[") + CURSOR_KEYS[code]
     elif code == 15 and pressed & SHIFT:
         value = "\x1b[Z"
     elif code in TERMINAL_KEYS:
@@ -192,13 +195,13 @@ def terminal_key(code, pressed, caps, application_cursor=False):
     elif code in PRINTABLE:
         normal, shifted = PRINTABLE[code]
         value = shifted if bool(pressed & SHIFT) ^ (caps and normal.isalpha()) else normal
-        if pressed & CTRL:
-            if normal.isalpha() or value in "@[\\]^_":
-                value = chr(ord(value.upper()) & 31)
-            elif value == " ":
-                value = "\x00"
     else:
         return None
+    if pressed & CTRL and len(value) == 1:
+        if value.isalpha() or value in "@[\\]^_":
+            value = chr(ord(value.upper()) & 31)
+        elif value == " ":
+            value = "\x00"
     return "\x1b" + value if pressed & ALT else value
 
 
@@ -334,7 +337,10 @@ class Display:
         image = Image.new("RGB", SIZE, background)
         draw = ImageDraw.Draw(image)
         draw.rectangle((0, 0, 319, 17), fill=SURFACE)
-        draw.text((5, 9), fitted(self.ui, name, 190), font=self.ui, fill=ACCENT, anchor="lm")
+        hint = tr("Fn+L 上翻  Fn+M 下翻", "Fn+L PgUp  Fn+M PgDn")
+        draw.text((315, 9), hint, font=self.ui, fill=MUTED, anchor="rm")
+        draw.text((5, 9), fitted(self.ui, name, 302 - self.ui.getlength(hint)),
+                  font=self.ui, fill=ACCENT, anchor="lm")
         for line_number in range(screen.lines):
             line = screen.buffer[line_number]
             prompt = SHELL_PROMPT.match("".join(line[column].data for column in range(screen.columns)))
@@ -382,7 +388,7 @@ class Terminal:
         import websocket
 
         self.name = session["name"]
-        self.screen = pyte.Screen(columns, rows)
+        self.screen = pyte.HistoryScreen(columns, rows, history=1000, ratio=1)
         self.stream = pyte.Stream(self.screen)
         self.events = queue.Queue()
         self.closed = threading.Event()
@@ -529,7 +535,14 @@ class App:
         if code == 58 and value == 1:
             self.caps = not self.caps
         if self.terminal:
-            keys = terminal_key(code, self.pressed, self.caps, (1 << 5) in self.terminal.screen.mode)
+            screen = self.terminal.screen
+            if code in (PAGE_UP, PAGE_DOWN) and not screen.mode & ALT_SCREEN_MODES:
+                if code == PAGE_UP:
+                    screen.prev_page()
+                else:
+                    screen.next_page()
+                return True
+            keys = terminal_key(code, self.pressed, self.caps, (1 << 5) in screen.mode)
             if keys and not self.terminal.closed.is_set():
                 self.send_keys(keys)
         elif self.host_action is not None:

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import pty from 'node-pty';
 import { WebSocket, WebSocketServer } from 'ws';
 
-const buildNumber = '0020';
+const buildNumber = '0021';
 const accessCode = String(randomInt(100000, 1000000));
 const webSessions = new Set();
 const loginAttempts = new Map();
