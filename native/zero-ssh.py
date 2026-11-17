@@ -251,6 +251,18 @@ class Display:
             draw.text((x, 159), label, font=self.ui, fill=INK, anchor="lm")
         return image
 
+    def loading_image(self):
+        image = Image.new("RGB", SIZE, BACKGROUND)
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((0, 0, 319, 27), fill=SURFACE)
+        draw.text((9, 14), "Zero SSH", font=self.title, fill=INK, anchor="lm")
+        angle = int(time.monotonic() * 8) % 8 * 45
+        draw.arc((149, 62, 171, 84), 0, 360, fill=SURFACE, width=3)
+        draw.arc((149, 62, 171, 84), angle, angle + 110, fill=ACCENT, width=3)
+        draw.text((160, 104), tr("正在加载主机…", "Loading hosts…"),
+                  font=self.ui, fill=INK, anchor="mm")
+        return image
+
     def host_form_image(self, fields, focus, status, access=None, editing=False):
         image = Image.new("RGB", SIZE, BACKGROUND)
         draw = ImageDraw.Draw(image)
@@ -452,6 +464,9 @@ class App:
         except OSError:
             self.status = tr("等待 Zero SSH 服务", "Waiting for Zero SSH service")
             return
+        self.apply_state(data)
+
+    def apply_state(self, data):
         extra_index = self.index - len(self.hosts) if self.loaded and self.index >= len(self.hosts) else None
         selected = self.hosts[self.index]["id"] if self.index < len(self.hosts) else None
         self.hosts = data["hosts"]
@@ -500,6 +515,8 @@ class App:
         if self.host_form is not None:
             return self.display.host_form_image(self.host_form, self.form_focus, self.status, self.access,
                                                 self.editing_host is not None)
+        if not self.loaded:
+            return self.display.loading_image()
         return self.display.list_image(self.hosts, self.active, self.index, self.status)
 
     def handle_key(self, code, value):
@@ -576,7 +593,7 @@ class App:
             self.terminal.close()
             self.terminal = None
             self.refresh()
-        if self.on_host_list() and not from_list:
+        if self.loaded and self.on_host_list() and not from_list:
             self.refresh()
         return True
 
@@ -590,6 +607,8 @@ class App:
             self.status = tr("连接已关闭", "Connection closed")
 
     def handle_host_key(self, code, value):
+        if not self.loaded:
+            return
         if code in (*LIST_MOVES, TAB):
             order = [len(self.hosts), *range(len(self.hosts))]
             self.index = order[(order.index(self.index) + LIST_MOVES.get(code, 1)) % len(order)]
@@ -795,13 +814,24 @@ def run_ui(args):
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     app = App(f"http://127.0.0.1:{args.port}", Display(), Settings(args.settings_path))
-    app.refresh()
+    initial_state = queue.SimpleQueue()
+    stop_loading = threading.Event()
+
+    def load_hosts():
+        while not stop_loading.is_set():
+            try:
+                initial_state.put(app.request("/api/state"))
+                return
+            except OSError:
+                stop_loading.wait(0.5)
+
     refresh_at = time.monotonic() + 3
     with open(args.framebuffer, "wb", buffering=0) as framebuffer, \
             open(args.keyboard, "rb", buffering=0) as keyboard, selectors.DefaultSelector() as poll:
         poll.register(keyboard, selectors.EVENT_READ)
         dirty = True
         try:
+            threading.Thread(target=load_hosts, daemon=True).start()
             while True:
                 if app.exit_at is not None and time.monotonic() >= app.exit_at:
                     return
@@ -809,7 +839,14 @@ def run_ui(args):
                 if app.toast_until and time.monotonic() >= app.toast_until:
                     app.toast_until = 0
                     dirty = True
-                if app.exit_at is None and not app.terminal and app.host_form is None and app.settings_focus is None and app.host_action is None and time.monotonic() >= refresh_at:
+                if not app.loaded:
+                    try:
+                        app.apply_state(initial_state.get_nowait())
+                        refresh_at = time.monotonic() + 3
+                    except queue.Empty:
+                        pass
+                    dirty = True
+                if app.loaded and app.exit_at is None and app.on_host_list() and time.monotonic() >= refresh_at:
                     previous = (app.hosts, app.active, app.index, app.status)
                     app.refresh()
                     dirty |= previous != (app.hosts, app.active, app.index, app.status)
@@ -836,6 +873,7 @@ def run_ui(args):
                         refresh_at = time.monotonic() + 3
                     dirty |= value != 0 or code == ESC
         finally:
+            stop_loading.set()
             if app.terminal:
                 app.terminal.close()
             if not app.settings.keep_services:

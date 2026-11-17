@@ -14,6 +14,7 @@ class FormTests(unittest.TestCase):
 
     def test_pages_back_retains_password_and_address(self):
         app = ui.App("http://127.0.0.1:4173", None)
+        app.apply_state({"hosts": [], "sessions": []})
         app.request = lambda *args: {"url": "http://192.168.22.29:4173/", "code": "12345678"}
         app.handle_host_key(ui.ENTER, 1)
         app.host_form["hostname"] = "server"

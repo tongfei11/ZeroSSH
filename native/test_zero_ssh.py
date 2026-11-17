@@ -13,6 +13,7 @@ SYM, PERIOD = 127, 91
 class ZeroKeyboardTest(unittest.TestCase):
     def test_symbol_layer_period_in_host_address(self):
         app = NATIVE["App"]("http://127.0.0.1:4173", None)
+        app.apply_state({"hosts": [], "sessions": []})
 
         def tap(code):
             app.handle_key(code, 1)
@@ -37,6 +38,7 @@ class ZeroKeyboardTest(unittest.TestCase):
         for password in ("", " a.b "):
             with self.subTest(password_saved=bool(password)):
                 app = NATIVE["App"]("http://127.0.0.1:4173", None)
+                app.apply_state({"hosts": [], "sessions": []})
                 app.handle_key(NATIVE["ENTER"], 1)
                 self.assertEqual(
                     list(app.host_form), ["name", "hostname", "port", "user", "password"]
@@ -54,6 +56,7 @@ class ZeroKeyboardTest(unittest.TestCase):
 
     def test_short_escape_cancels_and_long_escape_exits(self):
         app = NATIVE["App"]("http://127.0.0.1:4173", None)
+        app.apply_state({"hosts": [], "sessions": []})
         esc = NATIVE["ESC"]
         with patch("time.monotonic", side_effect=[11, 20, 23]):
             app.handle_key(NATIVE["ENTER"], 1)
