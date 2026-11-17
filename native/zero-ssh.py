@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import queue
+import re
 import tempfile
 import selectors
 import signal
@@ -77,6 +78,7 @@ TERMINAL_COLORS = {
     "brightblue": "#a6c4ff", "brightmagenta": "#ebb2fa",
     "brightcyan": "#a0e7ed", "brightwhite": "#ffffff",
 }
+SHELL_PROMPT = re.compile(r"^([\w.-]+@[\w.-]+):([~\/][^\r\n]*?)(?=[#$] )")
 FONT_CJK = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 FONT_MONO = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 FONT_UI = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -323,11 +325,17 @@ class Display:
         draw.text((5, 9), fitted(self.ui, name, 190), font=self.ui, fill=ACCENT, anchor="lm")
         for line_number in range(screen.lines):
             line = screen.buffer[line_number]
+            prompt = SHELL_PROMPT.match("".join(line[column].data for column in range(screen.columns)))
             for column in range(screen.columns):
                 cell = line[column]
                 x = 4 + column * self.cell_width
                 y = 19 + line_number * self.cell_height
                 fg = self.color(cell.fg, foreground)
+                if prompt and cell.fg == "default" and cell.bg == "default" and not cell.reverse:
+                    if column < prompt.end(1):
+                        fg = self.color("green", foreground)
+                    elif prompt.start(2) <= column < prompt.end(2):
+                        fg = self.color("cyan", foreground)
                 bg = self.color(cell.bg, background)
                 if cell.reverse:
                     fg, bg = bg, fg
